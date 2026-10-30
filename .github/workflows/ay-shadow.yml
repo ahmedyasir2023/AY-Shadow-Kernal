@@ -1,0 +1,37 @@
+name: AY Shadow Kernal v3 - experimental build
+on:
+  push:
+    branches: [main]
+    paths:
+      - "build.sh"
+      - "scripts/**"
+      - ".github/workflows/ay-shadow.yml"
+  workflow_dispatch:
+permissions:
+  contents: read
+jobs:
+  source-build:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 110
+    steps:
+      - name: Checkout AY Shadow configuration
+        uses: actions/checkout@v4
+      - name: Install build dependencies
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y git python3 make bc bison flex libssl-dev libelf-dev libncurses-dev ccache zip
+      - name: Compile pinned ShadowBladeX with AY branding
+        env:
+          BUILD_JOBS: "4"
+        run: bash ./build.sh
+      - name: Upload experimental build and diagnostics
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: AY-Shadow-Kernal-v3-EXPERIMENTAL
+          path: |
+            dist/
+            reports/
+            work/build.log
+          if-no-files-found: warn
+          retention-days: 7
