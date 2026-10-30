@@ -30,7 +30,7 @@ def set_cfg(s, key, value):
 
 changes = {
     "LOCALVERSION": '"-AY-Shadow-Kernal"',
-    "CC_OPTIMIZE_FOR_PERFORMANCE": "y",
+    # Source Makefile defaults to -O3 when CONFIG_CC_OPTIMIZE_FOR_SIZE is not y.
     "TCP_CONG_ADVANCED": "y",
     "TCP_CONG_BBR": "y",
     "NET_SCH_FQ": "y",
@@ -40,14 +40,15 @@ changes = {
 }
 reportdir = Path("reports")
 reportdir.mkdir(exist_ok=True)
-for name in ("atoll_defconfig", "atoll-perf_defconfig"):
-    path = root / "arch/arm64/configs/vendor" / name
+for path in (root / "arch/arm64/configs/atoll_defconfig",
+             root / "arch/arm64/configs/vendor/atoll_defconfig",
+             root / "arch/arm64/configs/vendor/atoll-perf_defconfig"):
+    name = path.name
     old = path.read_text()
     new = old
     for key, value in changes.items():
         new = set_cfg(new, key, value)
-    new = set_cfg(new, "CC_OPTIMIZE_FOR_SIZE", "n") if False else new
     new = re.sub(r"^CONFIG_CC_OPTIMIZE_FOR_SIZE=y$", "# CONFIG_CC_OPTIMIZE_FOR_SIZE is not set", new, flags=re.M)
-    (reportdir / (name + ".diff")).write_text("".join(difflib.unified_diff(old.splitlines(True), new.splitlines(True), fromfile="upstream/"+name, tofile="AY-Shadow/"+name)))
+    (reportdir / ((("primary-" if path.parent.name == "configs" else "vendor-") + name) + ".diff")).write_text("".join(difflib.unified_diff(old.splitlines(True), new.splitlines(True), fromfile="upstream/"+name, tofile="AY-Shadow/"+name)))
     path.write_text(new)
     print("Patched", path)
