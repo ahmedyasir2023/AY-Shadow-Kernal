@@ -1,6 +1,6 @@
 // SPDX-License-Identifier: GPL-2.0
 /*
- * AY Shadow V6 Alpha 3 — Eng. Ahmed Yasir / RMX2170.
+ * AY Shadow V6 Alpha 4 — Eng. Ahmed Yasir / RMX2170.
  * Opt-in, screen-driven policy cap. No thermal/FP/wakelock bypass.
  */
 #include <linux/module.h>
@@ -16,10 +16,12 @@
 #include <linux/notifier.h>
 #include <linux/power_supply.h>
 #include <linux/sysfs.h>
+#include <linux/suspend.h>
+#include <linux/timekeeping.h>
 #include <linux/workqueue.h>
 
 #define AY_DEFAULT_DELAY 600U
-#define AY_DEFAULT_CAP 55U
+#define AY_DEFAULT_CAP 0U /* Ultra: hardware minimum unless an existing policy floor is higher */
 #define AY_WAKE_MS 250U
 #define AY_WAKE_FLOOR 20U
 #define AY_GAME_FLOOR 25U
@@ -44,7 +46,6 @@ static atomic_t ay_game_denials = ATOMIC_INIT(0);
 static atomic_t ay_restore_pending = ATOMIC_INIT(0);
 static atomic_t ay_restore_ms = ATOMIC_INIT(-1);
 /* Explicit future Android-exception hook: calls, music, navigation. */
-static bool ay_inhibit;
 static unsigned long ay_wake_started;
 static unsigned long ay_last_sample;
 static bool ay_wake_enabled; /* user opt-in, off until hardware validation */
@@ -55,7 +56,42 @@ static bool ay_enabled; /* deliberately OFF by default until hardware validation
 static bool ay_screen_on = true;
 static unsigned int ay_delay = AY_DEFAULT_DELAY;
 static unsigned int ay_cap = AY_DEFAULT_CAP;
-static unsigned long ay_screen_off_at;
+static u64 ay_screen_off_boottime_ms;
+static atomic_t ay_post_suspend_count = ATOMIC_INIT(0);
+static atomic_t ay_cap_applied = ATOMIC_INIT(0);
+
+/* BOOTTIME includes elapsed suspend. jiffies do not. */
+static u64 ay_now_ms(void)
+{
+	return (u64)ktime_to_ms(ktime_get_boottime());
+}
+static unsigned int ay_remaining_ms(void)
+{
+	u64 now = ay_now_ms();
+	u64 since = READ_ONCE(ay_screen_off_boottime_ms);
+	u64 elapsed = now >= since ? now - since : 0;
+	u64 target = (u64)READ_ONCE(ay_delay) * 1000ULL;
+
+	return elapsed >= target ? 0U : (unsigned int)(target - elapsed);
+}
+static void ay_schedule_doze(void)
+{
+	if (!READ_ONCE(ay_enabled) || READ_ONCE(ay_screen_on))
+		return;
+	mod_delayed_work(system_freezable_wq, &ay_doze_work,
+			 msecs_to_jiffies(ay_remaining_ms()));
+}
+/* A suspend that overlaps the deadline cannot postpone UltraDoze indefinitely. */
+static int ay_pm_event(struct notifier_block *nb,
+		       unsigned long event, void *data)
+{
+	if (event == PM_POST_SUSPEND) {
+		atomic_inc(&ay_post_suspend_count);
+		ay_schedule_doze();
+	}
+	return NOTIFY_OK;
+}
+static struct notifier_block ay_pm_nb = { .notifier_call = ay_pm_event };
 
 /*
  * Priority: screen-off Doze ceiling, then optional short wake boost, then
@@ -81,8 +117,10 @@ static int ay_cpufreq_adjust(struct notifier_block *nb,
 					  READ_ONCE(ay_cap)) / 100U);
 		if (limit < policy->min)
 			limit = policy->min;
-		if (limit < policy->max)
+		if (limit < policy->max) {
 			cpufreq_verify_within_limits(policy, policy->min, limit);
+			atomic_inc(&ay_cap_applied);
+		}
 		return NOTIFY_OK;
 	}
 
@@ -183,10 +221,23 @@ static void ay_thermal_sample(struct work_struct *work)
 
 static void ay_enter_deepdoze(struct work_struct *work)
 {
-	if (!READ_ONCE(ay_enabled) || READ_ONCE(ay_screen_on) ||
-	    READ_ONCE(ay_inhibit))
+	if (!READ_ONCE(ay_enabled) || READ_ONCE(ay_screen_on))
 		return;
+	/* Suspended time counts. Do NOT wake the phone just to set this cap. */
+	if (ay_remaining_ms()) {
+		ay_schedule_doze();
+		return;
+	}
 	atomic_set(&ay_deep, 1);
+	/*
+	 * Screen-on and sysfs disable can race with this delayed work.
+	 * Wake owns the final state: never leave a cap after unblank.
+	 */
+	if (READ_ONCE(ay_screen_on) || !READ_ONCE(ay_enabled)) {
+		atomic_set(&ay_deep, 0);
+		schedule_work(&ay_policy_work);
+		return;
+	}
 	atomic_inc(&ay_deep_entries);
 	schedule_work(&ay_policy_work);
 }
@@ -216,10 +267,8 @@ static void ay_set_screen(bool screen_on)
 		cancel_delayed_work(&ay_wake_work);
 		cancel_delayed_work(&ay_thermal_work);
 		schedule_work(&ay_policy_work);
-		WRITE_ONCE(ay_screen_off_at, jiffies);
-		if (READ_ONCE(ay_enabled) && !READ_ONCE(ay_inhibit))
-			mod_delayed_work(system_freezable_wq, &ay_doze_work,
-				msecs_to_jiffies(READ_ONCE(ay_delay) * 1000U));
+		WRITE_ONCE(ay_screen_off_boottime_ms, ay_now_ms());
+		ay_schedule_doze();
 	}
 }
 static int ay_fb_event(struct notifier_block *nb,
@@ -261,11 +310,8 @@ static ssize_t enabled_store(struct kobject *kobj, struct kobj_attribute *attr,
 		atomic_set(&ay_deep, 0);
 		cancel_delayed_work_sync(&ay_doze_work);
 		schedule_work(&ay_policy_work);
-	} else if (!READ_ONCE(ay_screen_on) && !READ_ONCE(ay_inhibit)) {
-		unsigned long elapsed = jiffies - READ_ONCE(ay_screen_off_at);
-		unsigned long target = msecs_to_jiffies(READ_ONCE(ay_delay) * 1000U);
-		mod_delayed_work(system_freezable_wq, &ay_doze_work,
-			target > elapsed ? target - elapsed : 0);
+	} else {
+		ay_schedule_doze();
 	}
 	mutex_unlock(&ay_control_lock);
 	return count;
@@ -291,12 +337,8 @@ static ssize_t delay_seconds_store(struct kobject *kobj,
 	mutex_lock(&ay_control_lock);
 	WRITE_ONCE(ay_delay, value);
 	if (READ_ONCE(ay_enabled) && !READ_ONCE(ay_screen_on) &&
-	    !READ_ONCE(ay_inhibit) && !atomic_read(&ay_deep)) {
-		unsigned long elapsed = jiffies - READ_ONCE(ay_screen_off_at);
-		unsigned long target = msecs_to_jiffies(value * 1000U);
-		mod_delayed_work(system_freezable_wq, &ay_doze_work,
-			target > elapsed ? target - elapsed : 0);
-	}
+	    !atomic_read(&ay_deep))
+		ay_schedule_doze();
 	mutex_unlock(&ay_control_lock);
 	return count;
 }
@@ -316,7 +358,7 @@ static ssize_t cap_percent_store(struct kobject *kobj,
 	int ret = kstrtouint(buf, 10, &value);
 	if (ret)
 		return ret;
-	if (value < 35 || value > 95)
+	if (value > 95)
 		return -ERANGE;
 	WRITE_ONCE(ay_cap, value);
 	if (atomic_read(&ay_deep))
@@ -335,7 +377,7 @@ static ssize_t state_show(struct kobject *kobj,
 	else if (READ_ONCE(ay_screen_on))
 		state = "performance";
 	else if (atomic_read(&ay_deep))
-		state = "deepdoze";
+		state = "ultra_deepdoze";
 	else
 		state = "light_idle";
 	return scnprintf(buf, PAGE_SIZE, "%s\n", state);
@@ -449,42 +491,6 @@ static ssize_t thermal_guard_show(struct kobject *kobj,
 }
 static struct kobj_attribute thermal_guard_attr = __ATTR_RO(thermal_guard);
 
-/*
- * Optional root-only external inhibitor for future Android Power HAL service.
- * Never infer call/music status from CPU use or poll Android inside the kernel.
- * Inhibit=1 instantly clears DeepDoze; Inhibit=0 restores the deadline.
- */
-static ssize_t inhibit_show(struct kobject *kobj,
-		struct kobj_attribute *attr, char *buf)
-{
-	return scnprintf(buf, PAGE_SIZE, "%u\n",
-			 READ_ONCE(ay_inhibit) ? 1 : 0);
-}
-static ssize_t inhibit_store(struct kobject *kobj,
-		struct kobj_attribute *attr, const char *buf, size_t count)
-{
-	bool on;
-	int ret = kstrtobool(buf, &on);
-	if (ret)
-		return ret;
-	mutex_lock(&ay_control_lock);
-	WRITE_ONCE(ay_inhibit, on);
-	if (on) {
-		atomic_set(&ay_deep, 0);
-		cancel_delayed_work_sync(&ay_doze_work);
-		schedule_work(&ay_policy_work);
-	} else if (READ_ONCE(ay_enabled) && !READ_ONCE(ay_screen_on)) {
-		unsigned long elapsed = jiffies - READ_ONCE(ay_screen_off_at);
-		unsigned long target = msecs_to_jiffies(READ_ONCE(ay_delay) * 1000U);
-		mod_delayed_work(system_freezable_wq, &ay_doze_work,
-			target > elapsed ? target - elapsed : 0);
-	}
-	mutex_unlock(&ay_control_lock);
-	return count;
-}
-static struct kobj_attribute inhibit_attr =
-	__ATTR(inhibit, 0600, inhibit_show, inhibit_store);
-
 /* Read-only performance counters: instrumentation is deliberately passive. */
 static ssize_t restore_ms_show(struct kobject *kobj,
 		struct kobj_attribute *attr, char *buf)
@@ -514,25 +520,61 @@ static ssize_t telemetry_show(struct kobject *kobj,
 	return scnprintf(buf, PAGE_SIZE,
 		"fb_events=%d wake_events=%d screen_on=%d deepdoze=%d " 
 		"wakeboost=%d game=%d thermal_safe=%d temp_decic=%d samples=%d "
-		"inhibit=%d deep_entries=%d restore_ms=%d game_denials=%d\n",
+		"deep_entries=%d restore_ms=%d game_denials=%d "
+		"post_suspend=%d cap_applied=%d\n",
 		atomic_read(&ay_fb_events), atomic_read(&ay_wake_events),
 		READ_ONCE(ay_screen_on) ? 1 : 0, atomic_read(&ay_deep),
 		atomic_read(&ay_wake_active), READ_ONCE(ay_game_enabled) ? 1 : 0,
 		atomic_read(&ay_thermal_safe), atomic_read(&ay_battery_temp),
-		atomic_read(&ay_game_samples), READ_ONCE(ay_inhibit) ? 1 : 0,
+		atomic_read(&ay_game_samples),
 		atomic_read(&ay_deep_entries), atomic_read(&ay_restore_ms),
-		atomic_read(&ay_game_denials));
+		atomic_read(&ay_game_denials), atomic_read(&ay_post_suspend_count),
+		atomic_read(&ay_cap_applied));
 }
 static struct kobj_attribute telemetry_attr = __ATTR_RO(telemetry);
+
+/* Clock includes suspend, unlike CPU timers or jiffies. */
+static ssize_t screen_off_seconds_show(struct kobject *kobj,
+		struct kobj_attribute *attr, char *buf)
+{
+	u64 now, start;
+
+	if (READ_ONCE(ay_screen_on))
+		return scnprintf(buf, PAGE_SIZE, "0\n");
+	now = ay_now_ms();
+	start = READ_ONCE(ay_screen_off_boottime_ms);
+	return scnprintf(buf, PAGE_SIZE, "%llu\n",
+		(unsigned long long)((now >= start ? now - start : 0) / 1000ULL));
+}
+static struct kobj_attribute screen_off_seconds_attr =
+	__ATTR_RO(screen_off_seconds);
+
+static ssize_t post_suspend_count_show(struct kobject *kobj,
+		struct kobj_attribute *attr, char *buf)
+{
+	return scnprintf(buf, PAGE_SIZE, "%d\n",
+			 atomic_read(&ay_post_suspend_count));
+}
+static struct kobj_attribute post_suspend_count_attr =
+	__ATTR_RO(post_suspend_count);
+
+static ssize_t cap_applied_show(struct kobject *kobj,
+		struct kobj_attribute *attr, char *buf)
+{
+	return scnprintf(buf, PAGE_SIZE, "%d\n",
+			 atomic_read(&ay_cap_applied));
+}
+static struct kobj_attribute cap_applied_attr = __ATTR_RO(cap_applied);
 
 static struct attribute *ay_attrs[] = {
 	&enabled_attr.attr, &delay_seconds_attr.attr, &cap_percent_attr.attr,
 	&state_attr.attr, &telemetry_attr.attr, &wakeboost_attr.attr,
 	&wakeboost_ms_attr.attr, &game_mode_attr.attr,
 	&game_floor_percent_attr.attr, &battery_temp_decic_attr.attr,
-	&thermal_guard_attr.attr, &inhibit_attr.attr,
-	&restore_ms_attr.attr, &deep_entries_attr.attr,
-	&game_denials_attr.attr, NULL,
+	&thermal_guard_attr.attr, &restore_ms_attr.attr,
+	&deep_entries_attr.attr, &game_denials_attr.attr,
+	&screen_off_seconds_attr.attr, &post_suspend_count_attr.attr,
+	&cap_applied_attr.attr, NULL,
 };
 static const struct attribute_group ay_attr_group = {.attrs = ay_attrs};
 static int __init ay_deepdoze_init(void)
@@ -548,10 +590,13 @@ static int __init ay_deepdoze_init(void)
 	ret = fb_register_client(&ay_fb_nb);
 	if (ret)
 		goto err_cpufreq;
+	ret = register_pm_notifier(&ay_pm_nb);
+	if (ret)
+		goto err_fb;
 	ay_kobj = kobject_create_and_add("ay_shadow", kernel_kobj);
 	if (!ay_kobj) {
 		ret = -ENOMEM;
-		goto err_fb;
+		goto err_pm;
 	}
 	ret = sysfs_create_group(ay_kobj, &ay_attr_group);
 	if (ret)
@@ -561,6 +606,8 @@ static int __init ay_deepdoze_init(void)
 	return 0;
 err_kobj:
 	kobject_put(ay_kobj);
+err_pm:
+	unregister_pm_notifier(&ay_pm_nb);
 err_fb:
 	fb_unregister_client(&ay_fb_nb);
 err_cpufreq:
@@ -572,6 +619,7 @@ static void __exit ay_deepdoze_exit(void)
 	WRITE_ONCE(ay_enabled, false);
 	atomic_set(&ay_deep, 0);
 	fb_unregister_client(&ay_fb_nb);
+	unregister_pm_notifier(&ay_pm_nb);
 	cancel_delayed_work_sync(&ay_doze_work);
 	cancel_delayed_work_sync(&ay_wake_work);
 	cancel_delayed_work_sync(&ay_thermal_work);
@@ -583,5 +631,5 @@ static void __exit ay_deepdoze_exit(void)
 module_init(ay_deepdoze_init);
 module_exit(ay_deepdoze_exit);
 MODULE_LICENSE("GPL");
-MODULE_DESCRIPTION("AY Shadow V6 Alpha3: DeepDoze inhibit, wake diagnostics, thermal fail-safe");
+MODULE_DESCRIPTION("AY Shadow V6 Alpha4: no-app-exceptions UltraDoze, BOOTTIME, instant restore");
 MODULE_AUTHOR("Eng. Ahmed Yasir");

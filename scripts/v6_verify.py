@@ -9,9 +9,14 @@ src, path = Path(sys.argv[1]), Path(sys.argv[2])
 config = dict(line.split("=", 1) for line in path.read_text().splitlines()
               if line.startswith("CONFIG_") and "=" in line)
 required = {
-    "CONFIG_LOCALVERSION": '"-AY-Shadow-V6-A3"',
+    "CONFIG_LOCALVERSION": '"-AY-Shadow-V6-A4"',
     "CONFIG_AY_SHADOW_DEEPDOZE": "y", "CONFIG_FB_NOTIFY": "y",
     "CONFIG_POWER_SUPPLY": "y",
+    "CONFIG_INPUT_TOUCHSCREEN": "y",
+    "CONFIG_TOUCHPANEL_OPPO": "y",
+    "CONFIG_TOUCHPANEL_NOVA": "y",
+    "CONFIG_TOUCHPANEL_NOVA_NT36672C_NOFLASH": "y",
+    "CONFIG_TOUCHPANEL_NEW_SET_IRQ_WAKE": "y",
     "CONFIG_CPU_FREQ": "y", "CONFIG_PM_SLEEP": "y",
     "CONFIG_CPU_FREQ_GOV_SCHEDUTIL": "y",
     "CONFIG_KSU": "y", "CONFIG_KSU_SUSFS": "y",
@@ -32,16 +37,48 @@ for guard in ("FB_EARLY_EVENT_BLANK", "system_freezable_wq", "CPUFREQ_ADJUST",
               "AY_BATTERY_LIMIT_DECI_C 400", "power_supply_get_by_name",
               "power_supply_put", "AY_BATTERY_SAMPLE_MS 5000U",
               "static bool ay_wake_enabled;", "static bool ay_game_enabled;",
-              "static bool ay_inhibit;", "__ATTR(inhibit, 0600",
+              "AY_DEFAULT_CAP 0U", "ktime_get_boottime()",
+              "register_pm_notifier", "PM_POST_SUSPEND",
+              "__ATTR_RO(screen_off_seconds)", "__ATTR_RO(post_suspend_count)",
+              "__ATTR_RO(cap_applied)",
               "atomic_read(&ay_restore_ms)", "AY_BATTERY_SAMPLE_MS",
               "time_before(jiffies, READ_ONCE(ay_last_sample)"):
     if guard not in source:
         errors.append("Missing driver safety gate: " + guard)
+# RMX2170 project 19721 native Novatek NT36672C gesture/wake path.
+tp_common = (src / "drivers/input/touchscreen/oppo_touchscreen/touchpanel_common_driver.c").read_text()
+tp_nvt = (src / "drivers/input/touchscreen/oppo_touchscreen/Novatek/NT36672C_noflash/nvt_drivers_nt36672c_noflash.c").read_text()
+tp_dts = (src / "arch/arm64/boot/dts/19721/atoll-idp.dtsi").read_text()
+for label, blob, guards in (
+    ("touch common", tp_common, (
+        "GESTURE_ATTR(double_tap, DouTap_enable);",
+        "key = KEY_DOUBLE_TAP;",
+        "enable_irq_wake(ts->irq);",
+        "disable_irq_wake(ts->irq);",
+        "if (ts->new_set_irq_wake_support)",
+    )),
+    ("Novatek NT36672C", tp_nvt, (
+        "case DTAP_DETECT:",
+        "gesture->gesture_type  = DouTap;",
+        "nvt_enable_black_gesture",
+        "CMD_OPEN_BLACK_GESTURE",
+    )),
+    ("RMX2170 project 19721 device tree", tp_dts, (
+        'compatible = "novatek,nf_nt36672c";',
+        "project_id = <19721>;",
+        "black_gesture_support;",
+        "new_set_irq_wake_support;",
+    )),
+):
+    for guard in guards:
+        if guard not in blob:
+            errors.append(f"Missing Double-Tap-to-Wake support in {label}: " + guard)
+
 if "KSU_VERSION := 33355" not in (src / "drivers/kernelsu/Makefile").read_text():
     errors.append("KernelSU source version changed unexpectedly")
 if 'SUSFS_VERSION "v2.3.0"' not in (src / "include/linux/susfs.h").read_text():
     errors.append("SUSFS version changed unexpectedly")
 if errors:
     sys.exit("V6 verification FAILED:\n" + "\n".join(errors))
-print("V6 Alpha3 config PASS: DeepDoze, InstantWake, temperature-gated GameBoost, root, FP.")
+print("V6 Alpha4 config PASS: UltraDoze, native RMX2170 Novatek DT2W/IRQ wake, fingerprint, root, thermal guards.")
 print("Hardware behavior not validated: do not flash unreviewed raw kernel.")
