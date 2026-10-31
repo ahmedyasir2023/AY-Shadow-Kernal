@@ -11,6 +11,16 @@ src = Path(sys.argv[1]).resolve()
 root = Path(__file__).resolve().parents[1]
 subprocess.run([sys.executable, str(root / "scripts/v5_patch.py"), str(src)], check=True)
 
+# Restore native DT2W default immediately after the touchscreen driver initializes.
+# Android may subsequently override it according to the user's preference.
+tp = src / "drivers/input/touchscreen/oppo_touchscreen/touchpanel_common_driver.c"
+tp_source = tp.read_text()
+old_dt2w = "uint8_t DouTap_enable = 0;"
+new_dt2w = "uint8_t DouTap_enable = 1;"
+if tp_source.count(old_dt2w) != 1 or tp_source.count("ts->gesture_enable = 1;") != 1:
+    sys.exit("Unexpected touch source: refuse to modify DT2W boot default")
+tp.write_text(tp_source.replace(old_dt2w, new_dt2w, 1))
+
 driver = root / "kernel/ay_deepdoze.c"
 if not driver.is_file():
     sys.exit("Missing V6 driver source")
