@@ -9,8 +9,9 @@ src, path = Path(sys.argv[1]), Path(sys.argv[2])
 config = dict(line.split("=", 1) for line in path.read_text().splitlines()
               if line.startswith("CONFIG_") and "=" in line)
 required = {
-    "CONFIG_LOCALVERSION": '"-AY-Shadow-V6-A1"',
+    "CONFIG_LOCALVERSION": '"-AY-Shadow-V6-A2"',
     "CONFIG_AY_SHADOW_DEEPDOZE": "y", "CONFIG_FB_NOTIFY": "y",
+    "CONFIG_POWER_SUPPLY": "y",
     "CONFIG_CPU_FREQ": "y", "CONFIG_PM_SLEEP": "y",
     "CONFIG_CPU_FREQ_GOV_SCHEDUTIL": "y",
     "CONFIG_KSU": "y", "CONFIG_KSU_SUSFS": "y",
@@ -26,7 +27,11 @@ errors = [f"{k}: expected {v}, got {config.get(k)!r}"
 source = (src / "drivers/misc/ay_deepdoze.c").read_text()
 for guard in ("FB_EARLY_EVENT_BLANK", "system_freezable_wq", "CPUFREQ_ADJUST",
               "cpufreq_verify_within_limits", "AY_DEFAULT_DELAY 600U",
-              "static bool ay_enabled;", "fb_unregister_client"):
+              "static bool ay_enabled;", "fb_unregister_client",
+              "AY_WAKE_MS 250U", "AY_GAME_FLOOR 25U",
+              "AY_BATTERY_LIMIT_DECI_C 400", "power_supply_get_by_name",
+              "power_supply_put", "AY_BATTERY_SAMPLE_MS 5000U",
+              "static bool ay_wake_enabled;", "static bool ay_game_enabled;"):
     if guard not in source:
         errors.append("Missing driver safety gate: " + guard)
 if "KSU_VERSION := 33355" not in (src / "drivers/kernelsu/Makefile").read_text():
@@ -35,5 +40,5 @@ if 'SUSFS_VERSION "v2.3.0"' not in (src / "include/linux/susfs.h").read_text():
     errors.append("SUSFS version changed unexpectedly")
 if errors:
     sys.exit("V6 verification FAILED:\n" + "\n".join(errors))
-print("V6 Alpha1 config PASS: real DeepDoze, framebuffer, root, fingerprint, thermals.")
+print("V6 Alpha2 config PASS: DeepDoze, InstantWake, temperature-gated GameBoost, root, FP.")
 print("Hardware behavior not validated: do not flash unreviewed raw kernel.")
