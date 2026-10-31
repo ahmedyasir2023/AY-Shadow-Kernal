@@ -1,29 +1,34 @@
 #!/usr/bin/env python3
-"""V5 RC1: patch the known-working v4 configuration, without changing fingerprint sources.
-This introduces a CONFIG_SECCOMP_FILTER experiment.  It is NOT an automatic SELinux fix.
-"""
+"""V5 RC2 source configuration: extend V4-safe kernel without changing device policy."""
 from pathlib import Path
 import re
 import subprocess
 import sys
 
-if len(sys.argv)!=2:
+if len(sys.argv) != 2:
     sys.exit("usage: v5_patch.py SOURCE_DIR")
-src=Path(sys.argv[1]).resolve()
-subprocess.run([sys.executable,str(Path(__file__).with_name("compat_patch.py")),str(src)],check=True)
-path=src/"arch/arm64/configs/atoll_defconfig"
-s=path.read_text()
-def set_cfg(k,v):
-    global s
-    pat=re.compile(rf"^(?:CONFIG_{k}=.*|# CONFIG_{k} is not set)$",re.M)
-    if len(pat.findall(s))>1:
-        sys.exit(f"Duplicate Kconfig key: {k}")
-    value=f"CONFIG_{k}={v}"
-    s=pat.sub(value,s,count=1) if pat.search(s) else s.rstrip()+"\n"+value+"\n"
-# Keep original governor/clock/thermal/fingerprint settings from the user's working v4.
-set_cfg("LOCALVERSION",'"-AY-Shadow-V5-RC1"')
-set_cfg("SECCOMP","y")
-set_cfg("SECCOMP_FILTER","y")
-# Do not touch SELinux runtime mode or system policy; gather device logs before changing.
-path.write_text(s)
-print("Applied V5 RC1 seccomp-filter option and kernel branding to v4-compatible config.")
+src = Path(sys.argv[1]).resolve()
+subprocess.run([sys.executable, str(Path(__file__).with_name("compat_patch.py")), str(src)], check=True)
+cfgpath = src / "arch/arm64/configs/atoll_defconfig"
+config = cfgpath.read_text()
+
+def set_cfg(key, value):
+    global config
+    pat = re.compile(rf"^(?:CONFIG_{key}=.*|# CONFIG_{key} is not set)$", re.M)
+    if len(pat.findall(config)) > 1:
+        sys.exit(f"Duplicate config key {key}")
+    value = f"CONFIG_{key}={value}"
+    config = pat.sub(value, config, count=1) if pat.search(config) else config.rstrip() + "\n" + value + "\n"
+
+for path, symbol in (("net/sched/Kconfig", "NET_SCH_FQ_CODEL"), ("net/ipv4/Kconfig", "TCP_CONG_WESTWOOD")):
+    if not re.search(rf"^config {symbol}$", (src / path).read_text(), re.M):
+        sys.exit(f"Required optional networking feature missing: {symbol}")
+
+set_cfg("LOCALVERSION", '"-AY-Shadow-V5-RC2"')
+set_cfg("SECCOMP", "y")
+set_cfg("SECCOMP_FILTER", "y")
+# New optional algorithms built into the actual kernel, not made Android defaults.
+set_cfg("NET_SCH_FQ_CODEL", "y")
+set_cfg("TCP_CONG_WESTWOOD", "y")
+cfgpath.write_text(config)
+print("Applied RC2: new built-in FQ-CoDel + TCP Westwood; V4 fingerprint base preserved.")
