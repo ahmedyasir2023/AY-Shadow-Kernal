@@ -34,3 +34,8 @@
 
 ## No claims about total root hiding
 SUSFS support does not mean the root is undetectable. Integrity and per-app compatibility are separate concerns.
+
+## Interpreting KernelSU's "Seccomp Disabled" accurately
+The KernelSU Next Manager `Home.kt` code obtains this value with `Os.prctl(21,0,0,0,0)` (`PR_GET_SECCOMP`) from its own process, then labels `0` "Disabled", `1` "Strict", `2` "Filter". This does **not** report whether the kernel was built with `CONFIG_SECCOMP_FILTER=y`, and a fully functional kernel may still show "Disabled" for the Manager process. V5 enabling this Kconfig option is a separate experiment to supply optional filter capabilities; it is **not** a guaranteed way to change the Manager card or to fix app crashes.
+
+Source (KernelSU Next code): https://github.com/KernelSU-Next/KernelSU-Next/blob/main/manager/app/src/main/java/com/rifsxd/ksunext/ui/screen/Home.kt
