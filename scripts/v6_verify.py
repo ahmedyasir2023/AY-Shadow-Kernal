@@ -52,6 +52,8 @@ tp_dts = (src / "arch/arm64/boot/dts/19721/atoll-idp.dtsi").read_text()
 for label, blob, guards in (
     ("touch common", tp_common, (
         "GESTURE_ATTR(double_tap, DouTap_enable);",
+        "uint8_t DouTap_enable = 1;",
+        "ts->gesture_enable = 1;",
         "key = KEY_DOUBLE_TAP;",
         "enable_irq_wake(ts->irq);",
         "disable_irq_wake(ts->irq);",
