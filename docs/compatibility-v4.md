@@ -37,3 +37,25 @@ This branch intentionally does not publish a stable release or claim fingerprint
 - **Actual phone fingerprint and boot tests remain pending. Never treat this as a validated fix until the user reports the results.**
 
 GitHub Actions build link: https://github.com/ahmedyasir2023/AY-Shadow-Kernal/actions/runs/41220748902
+
+
+## User hardware validation — October 31, 2026
+
+**Tested on Realme 7 Pro / RMX2170 running MelloDerp Android 14**, based on user-reported result and screenshots:
+
+| Check | Observed result |
+|---|---|
+| System boots | PASS (screenshots taken after boot) |
+| Fingerprint | PASS — user explicitly confirms it works again |
+| KernelSU root | PASS — user explicitly confirms root works; Manager shows Working, built-in (legacy) kernel v3.4.2 (33355) |
+| SUSFS | Detected, supported v2.3.0 (NON-GKI) |
+| Zygisk Next | Enabled, 1.5.2 |
+| OverlayFS MetaModule | Detected, 1.3.1 |
+| Kernel version shown | `4.14.357-g57525715` |
+| KernelSU manager installed | v3.2.0 (33129), older than running kernel; recommend matching v3.4.2 manager |
+| SELinux | Permissive — existing security concern, source unknown |
+| CPU-Z 'Root Access' | No (not necessarily contradictory; CPU-Z may not have root authorization) |
+
+**Scope of result:** This validates boot, reported fingerprint operation and reported root operation only. It does **not** demonstrate long-term stability, enforcing SELinux, battery or GPU gains, CTS/Play Integrity or compatibility with every module. No claim is made that root hiding defeats security checks.
+
+**Release policy:** Keep this branch as a device-validated candidate, not a production-stable kernel until charging, camera, Wi-Fi, cellular, deep sleep, encryption and module tests are documented. Preserve the known-working Boot backup and previous kernel recovery ZIP.
