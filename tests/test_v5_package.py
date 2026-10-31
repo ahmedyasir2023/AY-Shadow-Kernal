@@ -24,6 +24,10 @@ class RecoveryTests(unittest.TestCase):
     def test_reject_unsafe(self):
         with self.assertRaises(ValueError):
             banner(BASE.replace("do.devicecheck=1","do.devicecheck=0"))
+    def test_recovery_banner_keeps_backup(self):
+        result = banner(BASE)
+        self.assertIn("backup_dir=/sdcard/AY-Shadow-Backups", result)
+        self.assertIn("ro.boot.slot_suffix", result)
     def test_reject_repeat(self):
         with self.assertRaises(ValueError):
             banner(banner(BASE))
