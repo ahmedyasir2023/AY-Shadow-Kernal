@@ -11,6 +11,16 @@ src = Path(sys.argv[1]).resolve()
 root = Path(__file__).resolve().parents[1]
 subprocess.run([sys.executable, str(root / "scripts/v5_patch.py"), str(src)], check=True)
 
+# Restore native DT2W default immediately after the touchscreen driver initializes.
+# Android may subsequently override it according to the user's preference.
+tp = src / "drivers/input/touchscreen/oppo_touchscreen/touchpanel_common_driver.c"
+tp_source = tp.read_text()
+old_dt2w = "uint8_t DouTap_enable = 0;"
+new_dt2w = "uint8_t DouTap_enable = 1;"
+if tp_source.count(old_dt2w) != 1 or tp_source.count("ts->gesture_enable = 1;") != 1:
+    sys.exit("Unexpected touch source: refuse to modify DT2W boot default")
+tp.write_text(tp_source.replace(old_dt2w, new_dt2w, 1))
+
 driver = root / "kernel/ay_deepdoze.c"
 if not driver.is_file():
     sys.exit("Missing V6 driver source")
@@ -42,7 +52,7 @@ makefile.write_text(s)
 
 cfgpath = src / "arch/arm64/configs/atoll_defconfig"
 s = cfgpath.read_text()
-for name, value in (("LOCALVERSION", '"-AY-Shadow-V6-A4"'),
+for name, value in (("LOCALVERSION", '"-AY-Shadow-V6-A5"'),
                     ("AY_SHADOW_DEEPDOZE", "y"),
                     ("POWER_SUPPLY", "y")):
     pat = re.compile(rf"^(?:CONFIG_{name}=.*|# CONFIG_{name} is not set)$", re.M)
@@ -51,4 +61,4 @@ for name, value in (("LOCALVERSION", '"-AY-Shadow-V6-A4"'),
     repl = f"CONFIG_{name}={value}"
     s = pat.sub(repl, s, count=1) if pat.search(s) else s.rstrip() + "\n" + repl + "\n"
 cfgpath.write_text(s)
-print("V6 Alpha4 kernel source patched: DeepDoze + InstantWake + thermal-gated GameBoost. DeepDoze defaults OFF at runtime until validated.")
+print("V6 Alpha5 kernel source patched: DeepDoze + InstantWake + thermal-gated GameBoost. DeepDoze defaults OFF at runtime until validated.")
