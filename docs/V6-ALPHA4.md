@@ -16,6 +16,21 @@ No disabling Qualcomm thermal protection, battery safety, fingerprint drivers, p
 
 Forcing heavy background tasks onto minimum CPU speed can prolong them and can worsen energy use; physical power measurements must determine whether UltraDoze actually saves power.
 
+## Double-Tap-to-Wake — native RMX2170 path preserved
+
+The pinned kernel source already contains the device's native Novatek NT36672C_NF touch gesture implementation for project 19721:
+- Device tree declares `compatible = "novatek,nf_nt36672c"`, `black_gesture_support` and `new_set_irq_wake_support`.
+- Defconfig must retain `CONFIG_TOUCHPANEL_NOVA=y`, `CONFIG_TOUCHPANEL_NOVA_NT36672C_NOFLASH=y` and `CONFIG_TOUCHPANEL_NEW_SET_IRQ_WAKE=y`.
+- The Novatek driver recognizes `DTAP_DETECT` as `DouTap`; the common touch driver reports `KEY_DOUBLE_TAP`.
+- The common suspend path uses `enable_irq_wake(ts->irq)` for the enabled gesture path. The V6 DeepDoze driver must never mask this IRQ, disable IRQ wake, power off the touch controller, or remove the device-tree gesture flags.
+- UltraDoze only caps CPUFreq. The touch controller remains the low-power gesture detector and its IRQ is the hardware wake source; no app whitelist or continuously running CPU is needed.
+
+**The ROM setting remains authoritative.** The upstream common driver initializes `DouTap_enable` to 0 and exposes `/proc/touchpanel/double_tap_enable`; the Android ROM/settings service is expected to enable it when the user turns on Double Tap to Wake. V6 deliberately does not force the proc value to 1 at boot, because that would override the user's setting and could increase idle drain.
+
+The read-only Termux diagnostic prints `/proc/touchpanel/double_tap_enable`, `/proc/touchpanel/gesture_enable`, touch IRQ counts and matching wakeup sources when available.
+
+**Required physical test:** turn on Double Tap to Wake in Android settings, verify the proc value is 1, turn the display off, wait beyond 10 minutes until UltraDoze is active, then double-tap the display. Confirm the screen wakes, fingerprint unlock works, and the V6 telemetry reports the screen-on transition. Repeat after natural suspend. This behavior is source-supported but not yet verified on the actual phone running V6.
+
 ## Available root-only settings on a future approved V6 kernel
 
 - /sys/kernel/ay_shadow/enabled — opt-in UltraDoze (0 default)
