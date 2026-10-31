@@ -57,6 +57,7 @@ class UltraDozeContract(unittest.TestCase):
         for required in ("double_tap_enable", "gesture_enable", "wakeup_sources"):
             self.assertIn(required, DIAG)
         self.assertIn("Double-Tap-to-Wake", DOC)
+        self.assertIn("/proc/touchpanel/double_tap_enable", DOC)
         self.assertNotIn("disable_irq_wake", SRC)
 
     def test_wall_time_and_policy_counters_are_visible(self):
