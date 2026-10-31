@@ -56,15 +56,15 @@ static atomic_t ay_restore_ms = ATOMIC_INIT(-1);
 /* No application allowlist or DeepDoze exceptions. */
 static unsigned long ay_wake_started;
 static unsigned long ay_last_sample;
-static bool ay_wake_enabled; /* user opt-in, off until hardware validation */
-static bool ay_touch_enabled; /* user opt-in; never a wakelock */
+static bool ay_wake_enabled = true; /* screen wake boost auto, 250 ms maximum */
+static bool ay_touch_enabled = true; /* auto-registered; never a wakelock */
 static bool ay_touch_registered;
 static bool ay_game_enabled; /* user opt-in, off until hardware validation */
 static unsigned int ay_wake_ms = AY_WAKE_MS;
 static unsigned int ay_game_floor = AY_GAME_FLOOR;
 static unsigned int ay_touch_ms = AY_TOUCH_MS;
 static unsigned int ay_touch_floor = AY_TOUCH_FLOOR;
-static bool ay_enabled; /* deliberately OFF by default until hardware validation */
+static bool ay_enabled = true; /* 10-minute screen-off DeepDoze auto */
 static bool ay_screen_on = true;
 static unsigned int ay_delay = AY_DEFAULT_DELAY;
 static unsigned int ay_cap = AY_DEFAULT_CAP;
@@ -807,8 +807,21 @@ static int __init ay_deepdoze_init(void)
 	ret = sysfs_create_group(ay_kobj, &ay_attr_group);
 	if (ret)
 		goto err_kobj;
-	pr_info("AY Shadow V6 DeepDoze initialized (OFF by default, delay=%u s)\n",
-		ay_delay);
+	/* Register only after the policy, framebuffer and sysfs exist.
+	 * If the input subsystem rejects this experimental boost,
+	 * keep wake and DeepDoze operational instead of blocking boot. */
+	ret = input_register_handler(&ay_touch_handler);
+	if (ret) {
+		WRITE_ONCE(ay_touch_enabled, false);
+		pr_warn("AY Shadow: touchboost registration failed (%d), disabled\n", ret);
+	} else {
+		ay_touch_registered = true;
+		mod_delayed_work(system_freezable_wq, &ay_thermal_work, 0);
+	}
+	pr_info("AY Shadow V6 AUTO: screen-led DeepDoze enabled (delay=%u s), "
+		"wakeboost=%u touchboost=%u\n", ay_delay,
+		READ_ONCE(ay_wake_enabled) ? 1 : 0,
+		READ_ONCE(ay_touch_enabled) ? 1 : 0);
 	return 0;
 err_kobj:
 	kobject_put(ay_kobj);
@@ -843,5 +856,5 @@ static void __exit ay_deepdoze_exit(void)
 module_init(ay_deepdoze_init);
 module_exit(ay_deepdoze_exit);
 MODULE_LICENSE("GPL");
-MODULE_DESCRIPTION("AY Shadow V6 Alpha5: DeepDoze + thermal guarded on-touch app launch response");
+MODULE_DESCRIPTION("AY Shadow V6 Alpha5 AUTO: screen-led DeepDoze, WakeBoost and thermal guarded TouchBoost");
 MODULE_AUTHOR("Eng. Ahmed Yasir");

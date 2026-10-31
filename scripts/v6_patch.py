@@ -52,7 +52,7 @@ makefile.write_text(s)
 
 cfgpath = src / "arch/arm64/configs/atoll_defconfig"
 s = cfgpath.read_text()
-for name, value in (("LOCALVERSION", '"-AY-Shadow-V6-A5"'),
+for name, value in (("LOCALVERSION", '"-AY-Shadow-V6-A5-AUTO"'),
                     ("AY_SHADOW_DEEPDOZE", "y"),
                     ("POWER_SUPPLY", "y")):
     pat = re.compile(rf"^(?:CONFIG_{name}=.*|# CONFIG_{name} is not set)$", re.M)
@@ -61,4 +61,4 @@ for name, value in (("LOCALVERSION", '"-AY-Shadow-V6-A5"'),
     repl = f"CONFIG_{name}={value}"
     s = pat.sub(repl, s, count=1) if pat.search(s) else s.rstrip() + "\n" + repl + "\n"
 cfgpath.write_text(s)
-print("V6 Alpha5 kernel source patched: DeepDoze + InstantWake + thermal-gated GameBoost. DeepDoze defaults OFF at runtime until validated.")
+print("V6 Alpha5 AUTO kernel source patched: DeepDoze + InstantWake + thermal-gated GameBoost. DeepDoze, wake boost and touch boost start automatically at boot.")

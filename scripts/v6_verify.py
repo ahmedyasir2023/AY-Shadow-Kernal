@@ -9,7 +9,7 @@ src, path = Path(sys.argv[1]), Path(sys.argv[2])
 config = dict(line.split("=", 1) for line in path.read_text().splitlines()
               if line.startswith("CONFIG_") and "=" in line)
 required = {
-    "CONFIG_LOCALVERSION": '"-AY-Shadow-V6-A5"',
+    "CONFIG_LOCALVERSION": '"-AY-Shadow-V6-A5-AUTO"',
     "CONFIG_AY_SHADOW_DEEPDOZE": "y", "CONFIG_FB_NOTIFY": "y",
     "CONFIG_POWER_SUPPLY": "y",
     "CONFIG_INPUT_TOUCHSCREEN": "y",
@@ -32,16 +32,18 @@ errors = [f"{k}: expected {v}, got {config.get(k)!r}"
 source = (src / "drivers/misc/ay_deepdoze.c").read_text()
 for guard in ("FB_EARLY_EVENT_BLANK", "system_freezable_wq", "CPUFREQ_ADJUST",
               "cpufreq_verify_within_limits", "AY_DEFAULT_DELAY 600U",
-              "static bool ay_enabled;", "fb_unregister_client",
+              "static bool ay_enabled = true;", "fb_unregister_client",
               "AY_WAKE_MS 250U", "AY_GAME_FLOOR 25U",
               "AY_BATTERY_LIMIT_DECI_C 400", "power_supply_get_by_name",
               "power_supply_put", "AY_BATTERY_SAMPLE_MS 5000U",
-              "static bool ay_wake_enabled;", "static bool ay_game_enabled;",
-              "static bool ay_touch_enabled;", "AY_TOUCH_MS 700U",
+              "static bool ay_wake_enabled = true;", "static bool ay_game_enabled;",
+              "static bool ay_touch_enabled = true;", "AY_TOUCH_MS 700U",
               "AY_TOUCH_FLOOR 30U", "input_register_handler",
               "input_unregister_handler", "__ATTR(touchboost, 0600",
               "__ATTR_RO(touch_events)",
               "AY_DEFAULT_CAP 0U", "ktime_get_boottime()",
+              "ay_touch_registered = true;",
+              "ret = input_register_handler(&ay_touch_handler);",
               "register_pm_notifier", "PM_POST_SUSPEND",
               "__ATTR_RO(screen_off_seconds)", "__ATTR_RO(post_suspend_count)",
               "__ATTR_RO(cap_applied)",
@@ -86,5 +88,5 @@ if 'SUSFS_VERSION "v2.3.0"' not in (src / "include/linux/susfs.h").read_text():
     errors.append("SUSFS version changed unexpectedly")
 if errors:
     sys.exit("V6 verification FAILED:\n" + "\n".join(errors))
-print("V6 Alpha5 config PASS: UltraDoze, native RMX2170 Novatek DT2W/IRQ wake, fingerprint, root, thermal guards.")
+print("V6 Alpha5 AUTO config PASS: UltraDoze, native RMX2170 Novatek DT2W/IRQ wake, fingerprint, root, thermal guards.")
 print("Hardware behavior not validated: do not flash unreviewed raw kernel.")

@@ -15,8 +15,8 @@ class AlphaContract(unittest.TestCase):
         self.assertIn("system_freezable_wq", self.driver)
         self.assertIn("atomic_set(&ay_deep, 0)", self.driver)
 
-    def test_fail_safe_off_at_boot(self):
-        self.assertIn("static bool ay_enabled;", self.driver)
+    def test_automatic_screen_profiles_at_boot(self):
+        self.assertIn("static bool ay_enabled = true;", self.driver)
         self.assertIn("AY_DEFAULT_DELAY 600U", self.driver)
         self.assertIn("AY_DEFAULT_CAP 0U", self.driver)
 
