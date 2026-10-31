@@ -1,4 +1,4 @@
-# AY Shadow V6 — TITAN Alpha 1
+# AY Shadow V6 — TITAN Alpha 2 (inherited Alpha 1)
 Designed by **Eng. Ahmed Yasir**
 
 **Device:** Realme 7 Pro RMX2170, MelloDerp Android 14.
