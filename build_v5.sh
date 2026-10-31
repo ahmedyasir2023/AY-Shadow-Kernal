@@ -32,8 +32,8 @@ make -C "$SRC" -j"${BUILD_JOBS:-4}" O="$OUT" ARCH=arm64 LLVM=1 LLVM_IAS=1 \
   CLANG_TRIPLE="$CLANG_TRIPLE" CROSS_COMPILE="$CROSS_COMPILE" \
   Image.gz-dtb 2>&1 | tee "$ROOT/work/v5-build.log"
 test -s "$OUT/arch/arm64/boot/Image.gz-dtb"
-cp "$OUT/arch/arm64/boot/Image.gz-dtb" "$ROOT/dist/v5/AY-Shadow-V5-RC1-EXPERIMENTAL-Image.gz-dtb"
-cp "$OUT/.config" "$ROOT/dist/v5/AY-Shadow-V5-RC1.config"
-make -s -C "$SRC" O="$OUT" ARCH=arm64 kernelrelease > "$ROOT/dist/v5/kernelrelease.txt"
-sha256sum "$ROOT/dist/v5/AY-Shadow-V5-RC1-EXPERIMENTAL-Image.gz-dtb" > "$ROOT/dist/v5/SHA256SUMS"
-echo "V5 RC1 EXPERIMENTAL build completed. Runtime Seccomp/SELinux and fingerprint must be tested on RMX2170. Do not flash raw image."
+cp "$OUT/arch/arm64/boot/Image.gz-dtb" "$ROOT/dist/v5/AY-Shadow-V5-RC2-EXPERIMENTAL-Image.gz-dtb"
+cp "$OUT/.config" "$ROOT/dist/v5/AY-Shadow-V5-RC2.config"
+make -s -C "$SRC" O="$OUT" ARCH=arm64 LLVM=1 LLVM_IAS=1 CC=clang LD=ld.lld AR=llvm-ar NM=llvm-nm OBJCOPY=llvm-objcopy CLANG_TRIPLE="$CLANG_TRIPLE" CROSS_COMPILE="$CROSS_COMPILE" kernelrelease > "$ROOT/dist/v5/kernelrelease.txt"
+sha256sum "$ROOT/dist/v5/AY-Shadow-V5-RC2-EXPERIMENTAL-Image.gz-dtb" > "$ROOT/dist/v5/SHA256SUMS"
+echo "V5 RC2 EXPERIMENTAL build completed. Runtime Seccomp/SELinux and fingerprint must be tested on RMX2170. Do not flash raw image."
