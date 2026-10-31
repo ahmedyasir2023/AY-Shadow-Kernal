@@ -368,7 +368,7 @@ static ssize_t state_show(struct kobject *kobj,
 	else if (READ_ONCE(ay_screen_on))
 		state = "performance";
 	else if (atomic_read(&ay_deep))
-		state = "deepdoze";
+		state = "ultra_deepdoze";
 	else
 		state = "light_idle";
 	return scnprintf(buf, PAGE_SIZE, "%s\n", state);
