@@ -229,6 +229,15 @@ static void ay_enter_deepdoze(struct work_struct *work)
 		return;
 	}
 	atomic_set(&ay_deep, 1);
+	/*
+	 * Screen-on and sysfs disable can race with this delayed work.
+	 * Wake owns the final state: never leave a cap after unblank.
+	 */
+	if (READ_ONCE(ay_screen_on) || !READ_ONCE(ay_enabled)) {
+		atomic_set(&ay_deep, 0);
+		schedule_work(&ay_policy_work);
+		return;
+	}
 	atomic_inc(&ay_deep_entries);
 	schedule_work(&ay_policy_work);
 }
