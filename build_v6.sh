@@ -31,11 +31,11 @@ make -C "$SRC" -j4 O="$OUT" ARCH=arm64 LLVM=1 LLVM_IAS=1 \
   CLANG_TRIPLE="$CLANG_TRIPLE" CROSS_COMPILE="$CROSS_COMPILE" \
   Image.gz-dtb 2>&1 | tee "$ROOT/work/v6-build.log"
 test -s "$OUT/arch/arm64/boot/Image.gz-dtb"
-cp "$OUT/arch/arm64/boot/Image.gz-dtb" "$ROOT/dist/v6/AY-Shadow-V6-A5-EXPERIMENTAL-Image.gz-dtb"
-cp "$OUT/.config" "$ROOT/dist/v6/AY-Shadow-V6-A5.config"
+cp "$OUT/arch/arm64/boot/Image.gz-dtb" "$ROOT/dist/v6/AY-Shadow-V6-A5-AUTO-EXPERIMENTAL-Image.gz-dtb"
+cp "$OUT/.config" "$ROOT/dist/v6/AY-Shadow-V6-A5-AUTO.config"
 make -s -C "$SRC" O="$OUT" ARCH=arm64 LLVM=1 LLVM_IAS=1 \
   CC=clang LD=ld.lld AR=llvm-ar NM=llvm-nm OBJCOPY=llvm-objcopy \
   CLANG_TRIPLE="$CLANG_TRIPLE" CROSS_COMPILE="$CROSS_COMPILE" \
   kernelrelease > "$ROOT/dist/v6/kernelrelease.txt"
-(cd "$ROOT/dist/v6" && sha256sum AY-Shadow-V6-A5-EXPERIMENTAL-Image.gz-dtb > SHA256SUMS)
-echo "V6 Alpha5 SOURCE BUILD only. Do not flash raw Image.gz-dtb; hardware tests pending."
+(cd "$ROOT/dist/v6" && sha256sum AY-Shadow-V6-A5-AUTO-EXPERIMENTAL-Image.gz-dtb > SHA256SUMS)
+echo "V6 Alpha5 AUTO SOURCE BUILD only. Do not flash raw Image.gz-dtb; hardware tests pending."

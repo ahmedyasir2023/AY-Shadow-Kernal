@@ -34,10 +34,10 @@ class V6Alpha3Safety(unittest.TestCase):
             self.assertIn(name, DRIVER)
 
     def test_no_raw_flash_and_immutable_safety_defaults(self):
-        self.assertIn("V6-A5", BUILD)
+        self.assertIn("V6-A5-AUTO", BUILD)
         self.assertIn("SOURCE BUILD only", BUILD)
-        self.assertIn("static bool ay_enabled;", DRIVER)
-        self.assertIn("static bool ay_wake_enabled;", DRIVER)
+        self.assertIn("static bool ay_enabled = true;", DRIVER)
+        self.assertIn("static bool ay_wake_enabled = true;", DRIVER)
         self.assertIn("static bool ay_game_enabled;", DRIVER)
         for prohibited in ("thermal_zone_device_unregister", "setenforce",
                            "cpufreq_driver_target", "disable_irq_nosync"):

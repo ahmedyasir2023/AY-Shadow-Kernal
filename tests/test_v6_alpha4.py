@@ -40,11 +40,11 @@ class UltraDozeContract(unittest.TestCase):
                           "disable_irq_nosync", "cpufreq_driver_target"):
             self.assertNotIn(forbidden, SRC)
 
-    def test_closed_by_default_without_on_device_check(self):
-        for required in ("static bool ay_enabled;", "static bool ay_wake_enabled;",
+    def test_auto_mode_keeps_game_disabled_and_thermal_safe(self):
+        for required in ("static bool ay_enabled = true;", "static bool ay_wake_enabled = true;",
                          "static bool ay_game_enabled;"):
             self.assertIn(required, SRC)
-        self.assertIn('"-AY-Shadow-V6-A5"', CFG)
+        self.assertIn('"-AY-Shadow-V6-A5-AUTO"', CFG)
         self.assertIn("AY_DEFAULT_CAP 0U", VER)
         self.assertIn("fingerprint", DOC.lower())
 
