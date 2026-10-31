@@ -1,8 +1,8 @@
 #!/usr/bin/env bash
 set -Eeuo pipefail
 ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
-SRC="$ROOT/work/compat-source"
-OUT="$ROOT/work/compat-out"
+SRC="/tmp/ays"
+OUT="/tmp/ayo"
 BASE_SHA=7306b28fccd87db72f25b314105747b1ce6f653c
 mkdir -p "$ROOT/work" "$ROOT/dist/compat"
 if [[ ! -d "$SRC/.git" ]]; then
