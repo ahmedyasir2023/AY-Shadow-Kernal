@@ -9,7 +9,7 @@ src, path = Path(sys.argv[1]), Path(sys.argv[2])
 config = dict(line.split("=", 1) for line in path.read_text().splitlines()
               if line.startswith("CONFIG_") and "=" in line)
 required = {
-    "CONFIG_LOCALVERSION": '"-AY-Shadow-V6-A3"',
+    "CONFIG_LOCALVERSION": '"-AY-Shadow-V6-A4"',
     "CONFIG_AY_SHADOW_DEEPDOZE": "y", "CONFIG_FB_NOTIFY": "y",
     "CONFIG_POWER_SUPPLY": "y",
     "CONFIG_CPU_FREQ": "y", "CONFIG_PM_SLEEP": "y",
@@ -32,7 +32,10 @@ for guard in ("FB_EARLY_EVENT_BLANK", "system_freezable_wq", "CPUFREQ_ADJUST",
               "AY_BATTERY_LIMIT_DECI_C 400", "power_supply_get_by_name",
               "power_supply_put", "AY_BATTERY_SAMPLE_MS 5000U",
               "static bool ay_wake_enabled;", "static bool ay_game_enabled;",
-              "static bool ay_inhibit;", "__ATTR(inhibit, 0600",
+              "AY_DEFAULT_CAP 0U", "ktime_get_boottime()",
+              "register_pm_notifier", "PM_POST_SUSPEND",
+              "__ATTR_RO(screen_off_seconds)", "__ATTR_RO(post_suspend_count)",
+              "__ATTR_RO(cap_applied)",
               "atomic_read(&ay_restore_ms)", "AY_BATTERY_SAMPLE_MS",
               "time_before(jiffies, READ_ONCE(ay_last_sample)"):
     if guard not in source:
@@ -43,5 +46,5 @@ if 'SUSFS_VERSION "v2.3.0"' not in (src / "include/linux/susfs.h").read_text():
     errors.append("SUSFS version changed unexpectedly")
 if errors:
     sys.exit("V6 verification FAILED:\n" + "\n".join(errors))
-print("V6 Alpha3 config PASS: DeepDoze, InstantWake, temperature-gated GameBoost, root, FP.")
+print("V6 Alpha4 config PASS: Ultra no-app-exceptions, BOOTTIME suspend, fingerprint, root, thermal guards.")
 print("Hardware behavior not validated: do not flash unreviewed raw kernel.")

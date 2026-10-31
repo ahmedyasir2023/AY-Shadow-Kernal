@@ -24,8 +24,8 @@ entry = (
     "    depends on FB_NOTIFY && CPU_FREQ && PM_SLEEP && SYSFS\n"
     "    default n\n"
     "    help\n"
-    "      Opt-in 10-minute screen-off CPU policy ceiling with early\n"
-    "      framebuffer wake restoration. Keep thermal limits enabled.\n"
+    "      BOOTTIME-aware 10-minute UltraDoze CPU limit with early\n"
+    "      framebuffer wake restoration, no app exceptions, thermal preserved.\n"
 )
 if "config AY_SHADOW_DEEPDOZE" not in s:
     if 'menu "Misc devices"' not in s:
@@ -42,7 +42,7 @@ makefile.write_text(s)
 
 cfgpath = src / "arch/arm64/configs/atoll_defconfig"
 s = cfgpath.read_text()
-for name, value in (("LOCALVERSION", '"-AY-Shadow-V6-A3"'),
+for name, value in (("LOCALVERSION", '"-AY-Shadow-V6-A4"'),
                     ("AY_SHADOW_DEEPDOZE", "y"),
                     ("POWER_SUPPLY", "y")):
     pat = re.compile(rf"^(?:CONFIG_{name}=.*|# CONFIG_{name} is not set)$", re.M)
@@ -51,4 +51,4 @@ for name, value in (("LOCALVERSION", '"-AY-Shadow-V6-A3"'),
     repl = f"CONFIG_{name}={value}"
     s = pat.sub(repl, s, count=1) if pat.search(s) else s.rstrip() + "\n" + repl + "\n"
 cfgpath.write_text(s)
-print("V6 Alpha3 kernel source patched: DeepDoze + InstantWake + thermal-gated GameBoost. DeepDoze defaults OFF at runtime until validated.")
+print("V6 Alpha4 kernel source patched: DeepDoze + InstantWake + thermal-gated GameBoost. DeepDoze defaults OFF at runtime until validated.")

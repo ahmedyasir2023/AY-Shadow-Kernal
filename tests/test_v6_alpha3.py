@@ -8,9 +8,9 @@ BUILD = (ROOT / "build_v6.sh").read_text()
 SCRIPT = (ROOT / "scripts" / "v6_diagnostics.sh").read_text()
 
 class V6Alpha3Safety(unittest.TestCase):
-    def test_inhibit_is_root_only_and_cancels_deepdoze(self):
-        self.assertIn("__ATTR(inhibit, 0600", DRIVER)
-        self.assertIn("READ_ONCE(ay_inhibit)", DRIVER)
+    def test_no_application_inhibitor(self):
+        self.assertNotIn("ay_inhibit", DRIVER)
+        self.assertNotIn("__ATTR(inhibit", DRIVER)
         self.assertIn("cancel_delayed_work_sync(&ay_doze_work)", DRIVER)
         self.assertIn("atomic_set(&ay_deep, 0)", DRIVER)
         self.assertIn("system_freezable_wq", DRIVER)
@@ -28,13 +28,13 @@ class V6Alpha3Safety(unittest.TestCase):
         self.assertIn("READ_ONCE(ay_screen_on)", DRIVER)
 
     def test_multiple_device_observables(self):
-        for name in ("fb_events=", "wake_events=", "inhibit=%d",
+        for name in ("fb_events=", "wake_events=", "post_suspend=%d",
                      "deep_entries=%d", "restore_ms=%d", "game_denials=%d",
                      "__ATTR_RO(deep_entries)", "__ATTR_RO(game_denials)"):
             self.assertIn(name, DRIVER)
 
     def test_no_raw_flash_and_immutable_safety_defaults(self):
-        self.assertIn("V6-A3", BUILD)
+        self.assertIn("V6-A4", BUILD)
         self.assertIn("SOURCE BUILD only", BUILD)
         self.assertIn("static bool ay_enabled;", DRIVER)
         self.assertIn("static bool ay_wake_enabled;", DRIVER)

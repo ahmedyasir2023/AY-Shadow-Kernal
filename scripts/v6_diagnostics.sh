@@ -1,5 +1,5 @@
 #!/system/bin/sh
-# AY Shadow V6 Alpha3 / Eng. Ahmed Yasir
+# AY Shadow V6 Alpha4 / Eng. Ahmed Yasir
 # READ-ONLY diagnostics for RMX2170, usable on known-working V5 or V6.
 # Run inside Termux: su -c 'sh /sdcard/Download/v6_diagnostics.sh'
 set -u
@@ -18,10 +18,10 @@ getenforce 2>&1
 echo '=== V6 POWER ENGINE ==='
 D=/sys/kernel/ay_shadow
 if [ -d "$D" ]; then
-  for key in state enabled inhibit delay_seconds cap_percent \
+  for key in state enabled delay_seconds cap_percent \
              wakeboost wakeboost_ms game_mode game_floor_percent \
              thermal_guard battery_temp_decic restore_ms deep_entries \
-             game_denials telemetry; do
+             game_denials screen_off_seconds post_suspend_count cap_applied telemetry; do
     if [ -r "$D/$key" ]; then
       printf '%s: ' "$key"
       cat "$D/$key" 2>&1

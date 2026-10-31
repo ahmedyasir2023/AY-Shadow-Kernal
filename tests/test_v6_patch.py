@@ -18,7 +18,7 @@ class AlphaContract(unittest.TestCase):
     def test_fail_safe_off_at_boot(self):
         self.assertIn("static bool ay_enabled;", self.driver)
         self.assertIn("AY_DEFAULT_DELAY 600U", self.driver)
-        self.assertIn("AY_DEFAULT_CAP 55U", self.driver)
+        self.assertIn("AY_DEFAULT_CAP 0U", self.driver)
 
     def test_no_thermal_bypass_or_unlimited_boost(self):
         for forbidden in ("setenforce", "cpufreq_driver_target", "thermal_zone_set"):
