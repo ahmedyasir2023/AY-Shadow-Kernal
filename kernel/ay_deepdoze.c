@@ -1,6 +1,6 @@
 // SPDX-License-Identifier: GPL-2.0
 /*
- * AY Shadow V6 Alpha 2 — Eng. Ahmed Yasir / RMX2170.
+ * AY Shadow V6 Alpha 3 — Eng. Ahmed Yasir / RMX2170.
  * Opt-in, screen-driven policy cap. No thermal/FP/wakelock bypass.
  */
 #include <linux/module.h>
@@ -39,6 +39,14 @@ static atomic_t ay_wake_active = ATOMIC_INIT(0);
 static atomic_t ay_thermal_safe = ATOMIC_INIT(0);
 static atomic_t ay_battery_temp = ATOMIC_INIT(-1);
 static atomic_t ay_game_samples = ATOMIC_INIT(0);
+static atomic_t ay_deep_entries = ATOMIC_INIT(0);
+static atomic_t ay_game_denials = ATOMIC_INIT(0);
+static atomic_t ay_restore_pending = ATOMIC_INIT(0);
+static atomic_t ay_restore_ms = ATOMIC_INIT(-1);
+/* Explicit future Android-exception hook: calls, music, navigation. */
+static bool ay_inhibit;
+static unsigned long ay_wake_started;
+static unsigned long ay_last_sample;
 static bool ay_wake_enabled; /* user opt-in, off until hardware validation */
 static bool ay_game_enabled; /* user opt-in, off until hardware validation */
 static unsigned int ay_wake_ms = AY_WAKE_MS;
@@ -85,7 +93,9 @@ static int ay_cpufreq_adjust(struct notifier_block *nb,
 	if (READ_ONCE(ay_wake_enabled) && atomic_read(&ay_wake_active))
 		floor = min + (unsigned int)(((u64)(max - min) *
 					   AY_WAKE_FLOOR) / 100U);
-	if (READ_ONCE(ay_game_enabled) && atomic_read(&ay_thermal_safe)) {
+	if (READ_ONCE(ay_game_enabled) && atomic_read(&ay_thermal_safe) &&
+	    time_before(jiffies, READ_ONCE(ay_last_sample) +
+			msecs_to_jiffies(2 * AY_BATTERY_SAMPLE_MS))) {
 		limit = min + (unsigned int)(((u64)(max - min) *
 					 READ_ONCE(ay_game_floor)) / 100U);
 		if (limit > floor)
@@ -120,6 +130,11 @@ static void ay_refresh_policies(struct work_struct *work)
 			cpufreq_cpu_put(policy);
 		}
 	}
+	/* Policy refresh duration, NOT full unlock or display-on latency. */
+	if (READ_ONCE(ay_screen_on) &&
+	    atomic_xchg(&ay_restore_pending, 0))
+		atomic_set(&ay_restore_ms, jiffies_to_msecs(jiffies -
+				READ_ONCE(ay_wake_started)));
 }
 static void ay_end_wakeboost(struct work_struct *work)
 {
@@ -153,7 +168,12 @@ static void ay_thermal_sample(struct work_struct *work)
 	}
 	atomic_set(&ay_battery_temp, temperature);
 	atomic_set(&ay_thermal_safe, !ret && temperature >= 0 &&
-			temperature < AY_BATTERY_LIMIT_DECI_C);
+			temperature < AY_BATTERY_LIMIT_DECI_C &&
+			READ_ONCE(ay_game_enabled) && READ_ONCE(ay_screen_on));
+	if (ret || temperature < 0 ||
+	    temperature >= AY_BATTERY_LIMIT_DECI_C)
+		atomic_inc(&ay_game_denials);
+	WRITE_ONCE(ay_last_sample, jiffies);
 	atomic_inc(&ay_game_samples);
 	schedule_work(&ay_policy_work);
 	if (READ_ONCE(ay_game_enabled) && READ_ONCE(ay_screen_on))
@@ -163,9 +183,11 @@ static void ay_thermal_sample(struct work_struct *work)
 
 static void ay_enter_deepdoze(struct work_struct *work)
 {
-	if (!READ_ONCE(ay_enabled) || READ_ONCE(ay_screen_on))
+	if (!READ_ONCE(ay_enabled) || READ_ONCE(ay_screen_on) ||
+	    READ_ONCE(ay_inhibit))
 		return;
 	atomic_set(&ay_deep, 1);
+	atomic_inc(&ay_deep_entries);
 	schedule_work(&ay_policy_work);
 }
 static void ay_set_screen(bool screen_on)
@@ -176,6 +198,8 @@ static void ay_set_screen(bool screen_on)
 	if (screen_on) {
 		/* Clear cap on EARLY UNBLANK, before policy worker runs. */
 		atomic_inc(&ay_wake_events);
+		WRITE_ONCE(ay_wake_started, jiffies);
+		atomic_set(&ay_restore_pending, 1);
 		atomic_set(&ay_deep, 0);
 		cancel_delayed_work(&ay_doze_work);
 		if (READ_ONCE(ay_wake_enabled)) {
@@ -193,7 +217,7 @@ static void ay_set_screen(bool screen_on)
 		cancel_delayed_work(&ay_thermal_work);
 		schedule_work(&ay_policy_work);
 		WRITE_ONCE(ay_screen_off_at, jiffies);
-		if (READ_ONCE(ay_enabled))
+		if (READ_ONCE(ay_enabled) && !READ_ONCE(ay_inhibit))
 			mod_delayed_work(system_freezable_wq, &ay_doze_work,
 				msecs_to_jiffies(READ_ONCE(ay_delay) * 1000U));
 	}
@@ -237,7 +261,7 @@ static ssize_t enabled_store(struct kobject *kobj, struct kobj_attribute *attr,
 		atomic_set(&ay_deep, 0);
 		cancel_delayed_work_sync(&ay_doze_work);
 		schedule_work(&ay_policy_work);
-	} else if (!READ_ONCE(ay_screen_on)) {
+	} else if (!READ_ONCE(ay_screen_on) && !READ_ONCE(ay_inhibit)) {
 		unsigned long elapsed = jiffies - READ_ONCE(ay_screen_off_at);
 		unsigned long target = msecs_to_jiffies(READ_ONCE(ay_delay) * 1000U);
 		mod_delayed_work(system_freezable_wq, &ay_doze_work,
@@ -267,7 +291,7 @@ static ssize_t delay_seconds_store(struct kobject *kobj,
 	mutex_lock(&ay_control_lock);
 	WRITE_ONCE(ay_delay, value);
 	if (READ_ONCE(ay_enabled) && !READ_ONCE(ay_screen_on) &&
-	    !atomic_read(&ay_deep)) {
+	    !READ_ONCE(ay_inhibit) && !atomic_read(&ay_deep)) {
 		unsigned long elapsed = jiffies - READ_ONCE(ay_screen_off_at);
 		unsigned long target = msecs_to_jiffies(value * 1000U);
 		mod_delayed_work(system_freezable_wq, &ay_doze_work,
@@ -425,18 +449,79 @@ static ssize_t thermal_guard_show(struct kobject *kobj,
 }
 static struct kobj_attribute thermal_guard_attr = __ATTR_RO(thermal_guard);
 
+/*
+ * Optional root-only external inhibitor for future Android Power HAL service.
+ * Never infer call/music status from CPU use or poll Android inside the kernel.
+ * Inhibit=1 instantly clears DeepDoze; Inhibit=0 restores the deadline.
+ */
+static ssize_t inhibit_show(struct kobject *kobj,
+		struct kobj_attribute *attr, char *buf)
+{
+	return scnprintf(buf, PAGE_SIZE, "%u\n",
+			 READ_ONCE(ay_inhibit) ? 1 : 0);
+}
+static ssize_t inhibit_store(struct kobject *kobj,
+		struct kobj_attribute *attr, const char *buf, size_t count)
+{
+	bool on;
+	int ret = kstrtobool(buf, &on);
+	if (ret)
+		return ret;
+	mutex_lock(&ay_control_lock);
+	WRITE_ONCE(ay_inhibit, on);
+	if (on) {
+		atomic_set(&ay_deep, 0);
+		cancel_delayed_work_sync(&ay_doze_work);
+		schedule_work(&ay_policy_work);
+	} else if (READ_ONCE(ay_enabled) && !READ_ONCE(ay_screen_on)) {
+		unsigned long elapsed = jiffies - READ_ONCE(ay_screen_off_at);
+		unsigned long target = msecs_to_jiffies(READ_ONCE(ay_delay) * 1000U);
+		mod_delayed_work(system_freezable_wq, &ay_doze_work,
+			target > elapsed ? target - elapsed : 0);
+	}
+	mutex_unlock(&ay_control_lock);
+	return count;
+}
+static struct kobj_attribute inhibit_attr =
+	__ATTR(inhibit, 0600, inhibit_show, inhibit_store);
+
+/* Read-only performance counters: instrumentation is deliberately passive. */
+static ssize_t restore_ms_show(struct kobject *kobj,
+		struct kobj_attribute *attr, char *buf)
+{
+	return scnprintf(buf, PAGE_SIZE, "%d\n", atomic_read(&ay_restore_ms));
+}
+static struct kobj_attribute restore_ms_attr = __ATTR_RO(restore_ms);
+
+static ssize_t deep_entries_show(struct kobject *kobj,
+		struct kobj_attribute *attr, char *buf)
+{
+	return scnprintf(buf, PAGE_SIZE, "%d\n", atomic_read(&ay_deep_entries));
+}
+static struct kobj_attribute deep_entries_attr = __ATTR_RO(deep_entries);
+
+static ssize_t game_denials_show(struct kobject *kobj,
+		struct kobj_attribute *attr, char *buf)
+{
+	return scnprintf(buf, PAGE_SIZE, "%d\n", atomic_read(&ay_game_denials));
+}
+static struct kobj_attribute game_denials_attr = __ATTR_RO(game_denials);
+
 static struct kobj_attribute state_attr = __ATTR_RO(state);
 static ssize_t telemetry_show(struct kobject *kobj,
 			       struct kobj_attribute *attr, char *buf)
 {
 	return scnprintf(buf, PAGE_SIZE,
 		"fb_events=%d wake_events=%d screen_on=%d deepdoze=%d " 
-		"wakeboost=%d game=%d thermal_safe=%d temp_decic=%d samples=%d\n",
+		"wakeboost=%d game=%d thermal_safe=%d temp_decic=%d samples=%d "
+		"inhibit=%d deep_entries=%d restore_ms=%d game_denials=%d\n",
 		atomic_read(&ay_fb_events), atomic_read(&ay_wake_events),
 		READ_ONCE(ay_screen_on) ? 1 : 0, atomic_read(&ay_deep),
 		atomic_read(&ay_wake_active), READ_ONCE(ay_game_enabled) ? 1 : 0,
 		atomic_read(&ay_thermal_safe), atomic_read(&ay_battery_temp),
-		atomic_read(&ay_game_samples));
+		atomic_read(&ay_game_samples), READ_ONCE(ay_inhibit) ? 1 : 0,
+		atomic_read(&ay_deep_entries), atomic_read(&ay_restore_ms),
+		atomic_read(&ay_game_denials));
 }
 static struct kobj_attribute telemetry_attr = __ATTR_RO(telemetry);
 
@@ -445,7 +530,9 @@ static struct attribute *ay_attrs[] = {
 	&state_attr.attr, &telemetry_attr.attr, &wakeboost_attr.attr,
 	&wakeboost_ms_attr.attr, &game_mode_attr.attr,
 	&game_floor_percent_attr.attr, &battery_temp_decic_attr.attr,
-	&thermal_guard_attr.attr, NULL,
+	&thermal_guard_attr.attr, &inhibit_attr.attr,
+	&restore_ms_attr.attr, &deep_entries_attr.attr,
+	&game_denials_attr.attr, NULL,
 };
 static const struct attribute_group ay_attr_group = {.attrs = ay_attrs};
 static int __init ay_deepdoze_init(void)
@@ -496,5 +583,5 @@ static void __exit ay_deepdoze_exit(void)
 module_init(ay_deepdoze_init);
 module_exit(ay_deepdoze_exit);
 MODULE_LICENSE("GPL");
-MODULE_DESCRIPTION("AY Shadow V6: DeepDoze, 250ms InstantWake and temperature-gated GameBoost");
+MODULE_DESCRIPTION("AY Shadow V6 Alpha3: DeepDoze inhibit, wake diagnostics, thermal fail-safe");
 MODULE_AUTHOR("Eng. Ahmed Yasir");

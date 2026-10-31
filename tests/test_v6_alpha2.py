@@ -1,4 +1,4 @@
-"""AY Shadow V6 Alpha2 safety contracts, before the full kernel CI compilation."""
+"""AY Shadow V6 Alpha3 safety contracts, before the full kernel CI compilation."""
 from pathlib import Path
 import unittest
 
@@ -8,7 +8,7 @@ PATCH = (ROOT / "scripts" / "v6_patch.py").read_text()
 BUILD = (ROOT / "build_v6.sh").read_text()
 VERIFY = (ROOT / "scripts" / "v6_verify.py").read_text()
 
-class TitanAlpha2Contracts(unittest.TestCase):
+class TitanAlpha3Contracts(unittest.TestCase):
     def test_wakeboost_is_opt_in_and_finite(self):
         self.assertIn("static bool ay_wake_enabled;", DRIVER)
         self.assertIn("AY_WAKE_MS 250U", DRIVER)
@@ -43,7 +43,7 @@ class TitanAlpha2Contracts(unittest.TestCase):
     def test_alpha2_full_kernel_build(self):
         self.assertIn('"CONFIG_POWER_SUPPLY": "y"', VERIFY)
         self.assertIn('("POWER_SUPPLY", "y")', PATCH)
-        self.assertIn("AY-Shadow-V6-A2", BUILD)
+        self.assertIn("AY-Shadow-V6-A3", BUILD)
         self.assertIn("Image.gz-dtb", BUILD)
         self.assertIn("SOURCE BUILD only", BUILD)
 
