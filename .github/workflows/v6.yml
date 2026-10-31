@@ -1,0 +1,41 @@
+name: AY Shadow V6 Alpha1 - DeepDoze source build
+on:
+  push:
+    branches: ['v6-*']
+    paths:
+      - 'kernel/ay_deepdoze.c'
+      - 'scripts/v6_*.py'
+      - 'build_v6.sh'
+      - 'tests/test_v6*.py'
+      - '.github/workflows/v6.yml'
+  pull_request:
+    branches: [v5-rc2-ahmed-yasir]
+  workflow_dispatch:
+permissions:
+  contents: read
+jobs:
+  source-build:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 110
+    steps:
+      - uses: actions/checkout@v4
+      - name: Install kernel build dependencies
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y git python3 make bc bison flex libssl-dev libelf-dev libncurses-dev ccache zip
+      - name: Run V6 safety regression tests
+        run: python3 -m unittest discover -s tests -p 'test_v6*.py' -v
+      - name: Compile V6 Alpha1 driver and full kernel
+        env:
+          BUILD_JOBS: '4'
+        run: bash ./build_v6.sh
+      - name: Upload experimental source build, NOT a flashable ZIP
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: AY-Shadow-V6-A1-NOT-FLASHABLE
+          path: |
+            dist/v6/
+            work/v6-build.log
+          if-no-files-found: warn
+          retention-days: 14
