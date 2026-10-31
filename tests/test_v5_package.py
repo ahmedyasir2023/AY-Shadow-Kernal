@@ -9,6 +9,10 @@ do.devicecheck=1
 supported.versions=14
 '; }
 PATCH_VBMETA_FLAG=0
+BLOCK=boot
+IS_SLOT_DEVICE=0
+backup_dir=/sdcard/AY-Shadow-Backups
+slot_suffix=$(getprop ro.boot.slot_suffix)
 echo "Cannot verify Realme 7 Pro/RMX2170"
 . tools/ak3-core.sh;
 split_boot;
