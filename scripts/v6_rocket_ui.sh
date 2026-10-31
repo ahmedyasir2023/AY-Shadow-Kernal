@@ -15,7 +15,9 @@ case "${1:-}" in
     done
     # Existing bounded 250 ms wake boost; no unlimited CPU frequency.
     [ ! -w "$D/wakeboost" ] || echo 1 > "$D/wakeboost"
-    echo "Rocket UI enabled. App-specific animations are not removed."
+    # Optional CPU-frequency floor on each BTN_TOUCH; battery guard in kernel.
+    [ ! -w "$D/touchboost" ] || echo 1 > "$D/touchboost"
+    echo "Rocket UI ON. TouchBoost is available only on Alpha5 kernel, with thermal guard."
     ;;
   off)
     for key in window_animation_scale transition_animation_scale animator_duration_scale; do
@@ -30,14 +32,17 @@ case "${1:-}" in
       fi
     done
     [ ! -w "$D/wakeboost" ] || echo 0 > "$D/wakeboost"
-    echo "Original animation values restored; wake boost disabled."
+    [ ! -w "$D/touchboost" ] || echo 0 > "$D/touchboost"
+    echo "Animations restored; both optional CPU boosts disabled."
     ;;
   status)
     for key in window_animation_scale transition_animation_scale animator_duration_scale; do
       printf "%s: " "$key"
       settings get global "$key"
     done
-    [ ! -r "$D/wakeboost" ] || { printf "wakeboost: "; cat "$D/wakeboost"; }
+    for key in wakeboost touchboost touchboost_ms touchboost_floor_percent touch_events; do
+      [ ! -r "$D/$key" ] || { printf "%s: " "$key"; cat "$D/$key"; }
+    done
     ;;
   *) echo "Usage: sh v6_rocket_ui.sh on|off|status"; exit 2 ;;
 esac
