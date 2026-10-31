@@ -1,6 +1,6 @@
 // SPDX-License-Identifier: GPL-2.0
 /*
- * AY Shadow V6 Alpha 1 — Eng. Ahmed Yasir / RMX2170.
+ * AY Shadow V6 Alpha 2 — Eng. Ahmed Yasir / RMX2170.
  * Opt-in, screen-driven policy cap. No thermal/FP/wakelock bypass.
  */
 #include <linux/module.h>
@@ -14,48 +14,93 @@
 #include <linux/kobject.h>
 #include <linux/mutex.h>
 #include <linux/notifier.h>
+#include <linux/power_supply.h>
 #include <linux/sysfs.h>
 #include <linux/workqueue.h>
 
 #define AY_DEFAULT_DELAY 600U
 #define AY_DEFAULT_CAP 55U
+#define AY_WAKE_MS 250U
+#define AY_WAKE_FLOOR 20U
+#define AY_GAME_FLOOR 25U
+#define AY_BATTERY_LIMIT_DECI_C 400
+#define AY_BATTERY_SAMPLE_MS 5000U
 
 static struct kobject *ay_kobj;
 static DEFINE_MUTEX(ay_control_lock);
 static struct delayed_work ay_doze_work;
+static struct delayed_work ay_wake_work;
+static struct delayed_work ay_thermal_work;
 static struct work_struct ay_policy_work;
 static atomic_t ay_deep = ATOMIC_INIT(0);
 static atomic_t ay_fb_events = ATOMIC_INIT(0);
 static atomic_t ay_wake_events = ATOMIC_INIT(0);
+static atomic_t ay_wake_active = ATOMIC_INIT(0);
+static atomic_t ay_thermal_safe = ATOMIC_INIT(0);
+static atomic_t ay_battery_temp = ATOMIC_INIT(-1);
+static atomic_t ay_game_samples = ATOMIC_INIT(0);
+static bool ay_wake_enabled; /* user opt-in, off until hardware validation */
+static bool ay_game_enabled; /* user opt-in, off until hardware validation */
+static unsigned int ay_wake_ms = AY_WAKE_MS;
+static unsigned int ay_game_floor = AY_GAME_FLOOR;
 static bool ay_enabled; /* deliberately OFF by default until hardware validation */
 static bool ay_screen_on = true;
 static unsigned int ay_delay = AY_DEFAULT_DELAY;
 static unsigned int ay_cap = AY_DEFAULT_CAP;
 static unsigned long ay_screen_off_at;
 
+/*
+ * Priority: screen-off Doze ceiling, then optional short wake boost, then
+ * temperature-gated game floor. The existing policy max and all hardware/thermal
+ * restrictions remain authoritative; never force driver clocks directly.
+ */
 static int ay_cpufreq_adjust(struct notifier_block *nb,
 			     unsigned long event, void *data)
 {
 	struct cpufreq_policy *policy = data;
-	unsigned int min, max, limit;
+	unsigned int min, max, limit, floor;
 
-	if (event != CPUFREQ_ADJUST || !READ_ONCE(ay_enabled) ||
-	    !atomic_read(&ay_deep) || !policy)
+	if (event != CPUFREQ_ADJUST || !policy)
 		return NOTIFY_OK;
 
 	min = policy->cpuinfo.min_freq;
 	max = policy->cpuinfo.max_freq;
 	if (max <= min)
 		return NOTIFY_OK;
-	/* Restrict only maximum; never raise current min, max, or thermal limit. */
-	limit = min + (unsigned int)(((u64)(max - min) *
+
+	if (READ_ONCE(ay_enabled) && atomic_read(&ay_deep)) {
+		limit = min + (unsigned int)(((u64)(max - min) *
 					  READ_ONCE(ay_cap)) / 100U);
-	if (limit < policy->min)
-		limit = policy->min;
-	if (limit < policy->max)
-		cpufreq_verify_within_limits(policy, policy->min, limit);
+		if (limit < policy->min)
+			limit = policy->min;
+		if (limit < policy->max)
+			cpufreq_verify_within_limits(policy, policy->min, limit);
+		return NOTIFY_OK;
+	}
+
+	if (!READ_ONCE(ay_screen_on))
+		return NOTIFY_OK;
+
+	floor = 0;
+	if (READ_ONCE(ay_wake_enabled) && atomic_read(&ay_wake_active))
+		floor = min + (unsigned int)(((u64)(max - min) *
+					   AY_WAKE_FLOOR) / 100U);
+	if (READ_ONCE(ay_game_enabled) && atomic_read(&ay_thermal_safe)) {
+		limit = min + (unsigned int)(((u64)(max - min) *
+					 READ_ONCE(ay_game_floor)) / 100U);
+		if (limit > floor)
+			floor = limit;
+	}
+
+	/* A governor, thermal or voltage policy can impose a lower maximum. */
+	if (floor && floor > policy->min) {
+		if (floor > policy->max)
+			floor = policy->max;
+		cpufreq_verify_within_limits(policy, floor, policy->max);
+	}
 	return NOTIFY_OK;
 }
+
 static struct notifier_block ay_cpufreq_nb = {
 	.notifier_call = ay_cpufreq_adjust,
 };
@@ -76,6 +121,46 @@ static void ay_refresh_policies(struct work_struct *work)
 		}
 	}
 }
+static void ay_end_wakeboost(struct work_struct *work)
+{
+	atomic_set(&ay_wake_active, 0);
+	schedule_work(&ay_policy_work);
+}
+
+/*
+ * Read battery temperature OUTSIDE the cpufreq policy notifier. Fail closed:
+ * if battery driver/temperature is unavailable, the game floor is disabled.
+ * 400 = 40.0 C, battery temperatures are expressed in tenths of degree C.
+ */
+static void ay_thermal_sample(struct work_struct *work)
+{
+	struct power_supply *battery;
+	union power_supply_propval prop;
+	int ret = -ENODEV, temperature = -1;
+
+	if (!READ_ONCE(ay_game_enabled) || !READ_ONCE(ay_screen_on)) {
+		atomic_set(&ay_thermal_safe, 0);
+		schedule_work(&ay_policy_work);
+		return;
+	}
+	battery = power_supply_get_by_name("battery");
+	if (battery) {
+		ret = power_supply_get_property(battery, POWER_SUPPLY_PROP_TEMP,
+						&prop);
+		if (!ret)
+			temperature = prop.intval;
+		power_supply_put(battery);
+	}
+	atomic_set(&ay_battery_temp, temperature);
+	atomic_set(&ay_thermal_safe, !ret && temperature >= 0 &&
+			temperature < AY_BATTERY_LIMIT_DECI_C);
+	atomic_inc(&ay_game_samples);
+	schedule_work(&ay_policy_work);
+	if (READ_ONCE(ay_game_enabled) && READ_ONCE(ay_screen_on))
+		mod_delayed_work(system_freezable_wq, &ay_thermal_work,
+				 msecs_to_jiffies(AY_BATTERY_SAMPLE_MS));
+}
+
 static void ay_enter_deepdoze(struct work_struct *work)
 {
 	if (!READ_ONCE(ay_enabled) || READ_ONCE(ay_screen_on))
@@ -93,8 +178,20 @@ static void ay_set_screen(bool screen_on)
 		atomic_inc(&ay_wake_events);
 		atomic_set(&ay_deep, 0);
 		cancel_delayed_work(&ay_doze_work);
+		if (READ_ONCE(ay_wake_enabled)) {
+			atomic_set(&ay_wake_active, 1);
+			mod_delayed_work(system_wq, &ay_wake_work,
+				msecs_to_jiffies(READ_ONCE(ay_wake_ms)));
+		}
+		if (READ_ONCE(ay_game_enabled))
+			mod_delayed_work(system_freezable_wq, &ay_thermal_work, 0);
 		schedule_work(&ay_policy_work);
 	} else {
+		atomic_set(&ay_wake_active, 0);
+		atomic_set(&ay_thermal_safe, 0);
+		cancel_delayed_work(&ay_wake_work);
+		cancel_delayed_work(&ay_thermal_work);
+		schedule_work(&ay_policy_work);
 		WRITE_ONCE(ay_screen_off_at, jiffies);
 		if (READ_ONCE(ay_enabled))
 			mod_delayed_work(system_freezable_wq, &ay_doze_work,
@@ -219,26 +316,144 @@ static ssize_t state_show(struct kobject *kobj,
 		state = "light_idle";
 	return scnprintf(buf, PAGE_SIZE, "%s\n", state);
 }
+/* Opt-in instant-wake floor; does not change the GPU, thermal limits or ROM. */
+static ssize_t wakeboost_show(struct kobject *kobj,
+		struct kobj_attribute *attr, char *buf)
+{
+	return scnprintf(buf, PAGE_SIZE, "%u\n",
+			READ_ONCE(ay_wake_enabled) ? 1 : 0);
+}
+static ssize_t wakeboost_store(struct kobject *kobj,
+		struct kobj_attribute *attr, const char *buf, size_t count)
+{
+	bool on;
+	int ret = kstrtobool(buf, &on);
+	if (ret)
+		return ret;
+	WRITE_ONCE(ay_wake_enabled, on);
+	if (!on) {
+		atomic_set(&ay_wake_active, 0);
+		cancel_delayed_work(&ay_wake_work);
+		schedule_work(&ay_policy_work);
+	}
+	return count;
+}
+static struct kobj_attribute wakeboost_attr =
+	__ATTR(wakeboost, 0600, wakeboost_show, wakeboost_store);
+
+static ssize_t wakeboost_ms_show(struct kobject *kobj,
+		struct kobj_attribute *attr, char *buf)
+{
+	return scnprintf(buf, PAGE_SIZE, "%u\n", READ_ONCE(ay_wake_ms));
+}
+static ssize_t wakeboost_ms_store(struct kobject *kobj,
+		struct kobj_attribute *attr, const char *buf, size_t count)
+{
+	unsigned int value;
+	int ret = kstrtouint(buf, 10, &value);
+	if (ret)
+		return ret;
+	if (value < 100 || value > 500)
+		return -ERANGE;
+	WRITE_ONCE(ay_wake_ms, value);
+	return count;
+}
+static struct kobj_attribute wakeboost_ms_attr =
+	__ATTR(wakeboost_ms, 0600, wakeboost_ms_show, wakeboost_ms_store);
+
+/* Temperature-gated, optional CPU GameBoost; 0 means V5 behavior. */
+static ssize_t game_mode_show(struct kobject *kobj,
+		struct kobj_attribute *attr, char *buf)
+{
+	return scnprintf(buf, PAGE_SIZE, "%u\n",
+			READ_ONCE(ay_game_enabled) ? 1 : 0);
+}
+static ssize_t game_mode_store(struct kobject *kobj,
+		struct kobj_attribute *attr, const char *buf, size_t count)
+{
+	bool on;
+	int ret = kstrtobool(buf, &on);
+	if (ret)
+		return ret;
+	WRITE_ONCE(ay_game_enabled, on);
+	atomic_set(&ay_thermal_safe, 0);
+	cancel_delayed_work(&ay_thermal_work);
+	if (on && READ_ONCE(ay_screen_on))
+		mod_delayed_work(system_freezable_wq, &ay_thermal_work, 0);
+	schedule_work(&ay_policy_work);
+	return count;
+}
+static struct kobj_attribute game_mode_attr =
+	__ATTR(game_mode, 0600, game_mode_show, game_mode_store);
+
+static ssize_t game_floor_percent_show(struct kobject *kobj,
+		struct kobj_attribute *attr, char *buf)
+{
+	return scnprintf(buf, PAGE_SIZE, "%u\n", READ_ONCE(ay_game_floor));
+}
+static ssize_t game_floor_percent_store(struct kobject *kobj,
+		struct kobj_attribute *attr, const char *buf, size_t count)
+{
+	unsigned int value;
+	int ret = kstrtouint(buf, 10, &value);
+	if (ret)
+		return ret;
+	if (value < 10 || value > 35)
+		return -ERANGE;
+	WRITE_ONCE(ay_game_floor, value);
+	schedule_work(&ay_policy_work);
+	return count;
+}
+static struct kobj_attribute game_floor_percent_attr =
+	__ATTR(game_floor_percent, 0600, game_floor_percent_show,
+			game_floor_percent_store);
+
+static ssize_t battery_temp_decic_show(struct kobject *kobj,
+		struct kobj_attribute *attr, char *buf)
+{
+	return scnprintf(buf, PAGE_SIZE, "%d\n",
+			 atomic_read(&ay_battery_temp));
+}
+static struct kobj_attribute battery_temp_decic_attr =
+	__ATTR_RO(battery_temp_decic);
+
+static ssize_t thermal_guard_show(struct kobject *kobj,
+		struct kobj_attribute *attr, char *buf)
+{
+	return scnprintf(buf, PAGE_SIZE, "%u\n",
+			 atomic_read(&ay_thermal_safe) ? 1 : 0);
+}
+static struct kobj_attribute thermal_guard_attr = __ATTR_RO(thermal_guard);
+
 static struct kobj_attribute state_attr = __ATTR_RO(state);
 static ssize_t telemetry_show(struct kobject *kobj,
 			       struct kobj_attribute *attr, char *buf)
 {
 	return scnprintf(buf, PAGE_SIZE,
-		"fb_events=%d wake_events=%d screen_on=%d deepdoze=%d\n",
+		"fb_events=%d wake_events=%d screen_on=%d deepdoze=%d " 
+		"wakeboost=%d game=%d thermal_safe=%d temp_decic=%d samples=%d\n",
 		atomic_read(&ay_fb_events), atomic_read(&ay_wake_events),
-		READ_ONCE(ay_screen_on) ? 1 : 0, atomic_read(&ay_deep));
+		READ_ONCE(ay_screen_on) ? 1 : 0, atomic_read(&ay_deep),
+		atomic_read(&ay_wake_active), READ_ONCE(ay_game_enabled) ? 1 : 0,
+		atomic_read(&ay_thermal_safe), atomic_read(&ay_battery_temp),
+		atomic_read(&ay_game_samples));
 }
 static struct kobj_attribute telemetry_attr = __ATTR_RO(telemetry);
 
 static struct attribute *ay_attrs[] = {
 	&enabled_attr.attr, &delay_seconds_attr.attr, &cap_percent_attr.attr,
-	&state_attr.attr, &telemetry_attr.attr, NULL,
+	&state_attr.attr, &telemetry_attr.attr, &wakeboost_attr.attr,
+	&wakeboost_ms_attr.attr, &game_mode_attr.attr,
+	&game_floor_percent_attr.attr, &battery_temp_decic_attr.attr,
+	&thermal_guard_attr.attr, NULL,
 };
 static const struct attribute_group ay_attr_group = {.attrs = ay_attrs};
 static int __init ay_deepdoze_init(void)
 {
 	int ret;
 	INIT_DELAYED_WORK(&ay_doze_work, ay_enter_deepdoze);
+	INIT_DELAYED_WORK(&ay_wake_work, ay_end_wakeboost);
+	INIT_DELAYED_WORK(&ay_thermal_work, ay_thermal_sample);
 	INIT_WORK(&ay_policy_work, ay_refresh_policies);
 	ret = cpufreq_register_notifier(&ay_cpufreq_nb, CPUFREQ_POLICY_NOTIFIER);
 	if (ret)
@@ -271,6 +486,8 @@ static void __exit ay_deepdoze_exit(void)
 	atomic_set(&ay_deep, 0);
 	fb_unregister_client(&ay_fb_nb);
 	cancel_delayed_work_sync(&ay_doze_work);
+	cancel_delayed_work_sync(&ay_wake_work);
+	cancel_delayed_work_sync(&ay_thermal_work);
 	flush_work(&ay_policy_work);
 	cpufreq_unregister_notifier(&ay_cpufreq_nb, CPUFREQ_POLICY_NOTIFIER);
 	sysfs_remove_group(ay_kobj, &ay_attr_group);
@@ -279,5 +496,5 @@ static void __exit ay_deepdoze_exit(void)
 module_init(ay_deepdoze_init);
 module_exit(ay_deepdoze_exit);
 MODULE_LICENSE("GPL");
-MODULE_DESCRIPTION("AY Shadow V6 DeepDoze: 10-minute screen-off CPU ceiling and early wake restore");
+MODULE_DESCRIPTION("AY Shadow V6: DeepDoze, 250ms InstantWake and temperature-gated GameBoost");
 MODULE_AUTHOR("Eng. Ahmed Yasir");
