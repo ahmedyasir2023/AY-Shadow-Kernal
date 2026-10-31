@@ -32,6 +32,22 @@ if [ -d "$D" ]; then
 else
   echo 'V6 engine sysfs unavailable (expected on working V5).'
 fi
+echo '=== DOUBLE TAP TO WAKE (READ ONLY) ==='
+for f in /proc/touchpanel/double_tap_enable /proc/touchpanel/gesture_enable; do
+  if [ -r "$f" ]; then
+    printf '%s: ' "$f"
+    cat "$f"
+  else
+    echo "$f: unavailable"
+  fi
+done
+echo '=== TOUCH IRQ / WAKE SOURCES ==='
+grep -iE 'touch|novatek|nvt|tp' /proc/interrupts 2>/dev/null | head -n 20 || true
+if [ -r /proc/wakeup_sources ]; then
+  grep -iE 'touch|novatek|nvt|tp' /proc/wakeup_sources 2>/dev/null | head -n 20 || true
+elif [ -r /sys/kernel/debug/wakeup_sources ]; then
+  grep -iE 'touch|novatek|nvt|tp' /sys/kernel/debug/wakeup_sources 2>/dev/null | head -n 20 || true
+fi
 echo '=== CPU POLICY READOUT ==='
 for d in /sys/devices/system/cpu/cpufreq/policy*; do
   [ -d "$d" ] || continue
