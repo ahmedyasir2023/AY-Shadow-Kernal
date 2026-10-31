@@ -1,38 +1,39 @@
-name: AY Shadow V5 RC1 - security compatibility build
+name: AY Shadow V5 RC2 experimental source build
 on:
   push:
-    branches: [v5-dev]
+    branches: [v5-dev, 'v5-rc2-*']
     paths:
-      - "build_v5.sh"
-      - "scripts/v5_*.py"
-      - "scripts/compat_patch.py"
-      - ".github/workflows/v5.yml"
+      - 'build_v5.sh'
+      - 'scripts/v5_*.py'
+      - 'scripts/compat_patch.py'
+      - 'tests/test_v5*.py'
+      - '.github/workflows/v5.yml'
+  pull_request:
+    branches: [v5-dev]
   workflow_dispatch:
 permissions:
   contents: read
-concurrency:
-  group: v5-security-build
-  cancel-in-progress: true
 jobs:
   source-build:
     runs-on: ubuntu-24.04
     timeout-minutes: 110
     steps:
-      - name: Checkout AY Shadow V5
-        uses: actions/checkout@v4
-      - name: Install kernel build dependencies
+      - uses: actions/checkout@v4
+      - name: Install kernel prerequisites
         run: |
           sudo apt-get update
           sudo apt-get install -y git python3 make bc bison flex libssl-dev libelf-dev libncurses-dev ccache zip
-      - name: Compile fingerprint compatible V5 with Seccomp Filter
+      - name: Recovery branding unit tests
+        run: python3 -m unittest discover -s tests -p 'test_v5*.py' -v
+      - name: Build experimental V5 RC2
+        run: bash ./build_v5.sh
         env:
           BUILD_JOBS: "4"
-        run: bash ./build_v5.sh
-      - name: Upload V5 experimental kernel and diagnostics
+      - name: Upload SOURCE-ONLY diagnostics; not a flashable ZIP
         if: always()
         uses: actions/upload-artifact@v4
         with:
-          name: AY-Shadow-V5-RC1-NOT-FLASHABLE
+          name: AY-Shadow-V5-RC2-NOT-FLASHABLE
           path: |
             dist/v5/
             work/v5-build.log
