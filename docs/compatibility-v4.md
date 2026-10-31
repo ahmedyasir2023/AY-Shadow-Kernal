@@ -24,3 +24,16 @@
 - Use a normal **KernelSU Next v3.4.2 (33355)** manager APK only after successful boot / root detection and verification.
 
 This branch intentionally does not publish a stable release or claim fingerprint repair before real-device validation.
+
+## Verified compiler outcome — 2026-10-31
+- GitHub Actions experimental branch build **41220748902** completed successfully.
+- Source commit pinned to `7306b28fccd87db72f25b314105747b1ce6f653c`.
+- Resolved kernel config contains `CONFIG_KSU=y`, `CONFIG_KSU_SUSFS=y`, optical/FPC fingerprint drivers, `CONFIG_HZ=300`, CPU boost, IRQ balancing, SELinux, thermal support.
+- Build log explicitly reports KernelSU Next kernel code **33355** and SUSFS **v2.3.0**; no compiler errors.
+- The separate OrangeFox test ZIP assembled outside GitHub uses original **working ShadowBladeX 4.14.356** DTBs in their exact original order (not generic upstream device trees).
+- Test archive SHA256: `6d40e25c59b2f3cedd402156af285d6459d10737040b7e975414c67582b978fd`
+- Test ZIP CRC and installation script syntax verified; neither guarantees the fingerprint will work or the phone will boot.
+- The ZIP was provided in the ChatGPT conversation; GitHub Actions Artifact contains the raw kernel image/config/log, **NOT** a recovery flashable ZIP.
+- **Actual phone fingerprint and boot tests remain pending. Never treat this as a validated fix until the user reports the results.**
+
+GitHub Actions build link: https://github.com/ahmedyasir2023/AY-Shadow-Kernal/actions/runs/41220748902
