@@ -7,6 +7,7 @@ SRC = (ROOT / "kernel/ay_deepdoze.c").read_text()
 CFG = (ROOT / "scripts/v6_patch.py").read_text()
 VER = (ROOT / "scripts/v6_verify.py").read_text()
 DOC = (ROOT / "docs/V6-ALPHA4.md").read_text()
+DIAG = (ROOT / "scripts/v6_diagnostics.sh").read_text()
 
 
 class UltraDozeContract(unittest.TestCase):
@@ -46,6 +47,17 @@ class UltraDozeContract(unittest.TestCase):
         self.assertIn('"-AY-Shadow-V6-A4"', CFG)
         self.assertIn("AY_DEFAULT_CAP 0U", VER)
         self.assertIn("fingerprint", DOC.lower())
+
+    def test_native_double_tap_wake_path_is_required(self):
+        for required in ("CONFIG_TOUCHPANEL_NOVA", "CONFIG_TOUCHPANEL_NOVA_NT36672C_NOFLASH",
+                         "CONFIG_TOUCHPANEL_NEW_SET_IRQ_WAKE", "black_gesture_support;",
+                         "new_set_irq_wake_support;", "DTAP_DETECT",
+                         "KEY_DOUBLE_TAP", "enable_irq_wake(ts->irq)"):
+            self.assertIn(required, VER)
+        for required in ("double_tap_enable", "gesture_enable", "wakeup_sources"):
+            self.assertIn(required, DIAG)
+        self.assertIn("Double-Tap-to-Wake", DOC)
+        self.assertNotIn("disable_irq_wake", SRC)
 
     def test_wall_time_and_policy_counters_are_visible(self):
         for required in ("__ATTR_RO(screen_off_seconds)",
