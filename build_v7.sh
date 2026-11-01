@@ -31,11 +31,11 @@ make -C "$SRC" -j4 O="$OUT" ARCH=arm64 LLVM=1 LLVM_IAS=1 \
   CLANG_TRIPLE="$CLANG_TRIPLE" CROSS_COMPILE="$CROSS_COMPILE" \
   Image.gz-dtb 2>&1 | tee "$ROOT/work/v7-build.log"
 test -s "$OUT/arch/arm64/boot/Image.gz-dtb"
-cp "$OUT/arch/arm64/boot/Image.gz-dtb" "$ROOT/dist/v7/AY-Shadow-V7-V7-EXPERIMENTAL-Image.gz-dtb"
+cp "$OUT/arch/arm64/boot/Image.gz-dtb" "$ROOT/dist/v7/AY-Shadow-V7-HyperSpeed-EXPERIMENTAL-Image.gz-dtb"
 cp "$OUT/.config" "$ROOT/dist/v7/AY-Shadow-V7-V7.config"
 make -s -C "$SRC" O="$OUT" ARCH=arm64 LLVM=1 LLVM_IAS=1 \
   CC=clang LD=ld.lld AR=llvm-ar NM=llvm-nm OBJCOPY=llvm-objcopy \
   CLANG_TRIPLE="$CLANG_TRIPLE" CROSS_COMPILE="$CROSS_COMPILE" \
   kernelrelease > "$ROOT/dist/v7/kernelrelease.txt"
-(cd "$ROOT/dist/v7" && sha256sum AY-Shadow-V7-V7-EXPERIMENTAL-Image.gz-dtb > SHA256SUMS)
+(cd "$ROOT/dist/v7" && sha256sum AY-Shadow-V7-HyperSpeed-EXPERIMENTAL-Image.gz-dtb > SHA256SUMS)
 echo "V7 HyperSpeed SOURCE BUILD only. Do not flash raw Image.gz-dtb; hardware tests pending."
