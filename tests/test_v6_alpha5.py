@@ -14,7 +14,7 @@ class Alpha5(unittest.TestCase):
         self.assertIn('"uint8_t DouTap_enable = 1;"',V)
     def test_bounded_thermal_guarded_touch_launch_boost(self):
         kernel=(R/"kernel/ay_deepdoze.c").read_text()
-        for token in ("AY_TOUCH_MS 700U", "AY_TOUCH_FLOOR 30U",
+        for token in ("AY_TOUCH_MS 900U", "AY_TOUCH_FLOOR 45U",
                       "static bool ay_touch_enabled = true;", "input_register_handler",
                       "input_unregister_handler", "code != BTN_TOUCH",
                       "READ_ONCE(ay_screen_on)", "atomic_read(&ay_thermal_safe)",
