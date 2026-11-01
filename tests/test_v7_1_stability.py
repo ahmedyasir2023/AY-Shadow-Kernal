@@ -56,6 +56,12 @@ class V71Stability(unittest.TestCase):
         self.assertIn('cpufreq_verify_within_limits', K)
         self.assertIn('ay_shadow_panel_event(bool screen_on)', K)
 
+    def test_kernel_info_log_has_valid_c_call(self):
+        # This regression previously compiled as '"pr_info("AY Shadow...'.
+        self.assertNotIn('"pr_info(', K)
+        self.assertIn('pr_info("AY Shadow V7.1 Stability:', K)
+        self.assertEqual(K.count('pr_info("AY Shadow V7.1 Stability:'), 1)
+
     def test_fingerprint_and_root_pin_and_release(self):
         for token in ('scripts/v5_patch.py', 'ay_shadow_panel_event(true)',
                       'ay_shadow_panel_event(false)',
