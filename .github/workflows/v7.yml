@@ -1,0 +1,43 @@
+name: AY Shadow V7 HyperSpeed - kernel source build
+on:
+  push:
+    branches: ['v7-*']
+    paths:
+      - 'kernel/ay_deepdoze.c'
+      - 'scripts/v7_*.py'
+      - 'scripts/v7_*.sh'
+      - 'build_v7.sh'
+      - 'tests/test_v7*.py'
+      - '.github/workflows/v7.yml'
+  workflow_dispatch:
+permissions:
+  contents: read
+jobs:
+  source-build:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 110
+    steps:
+      - uses: actions/checkout@v4
+      - name: Install kernel build dependencies
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y git python3 make bc bison flex libssl-dev libelf-dev libncurses-dev ccache zip
+      - name: V7 safety regression tests
+        run: |
+          python3 -m unittest discover -s tests -p 'test_v7*.py' -v
+          python3 -m py_compile scripts/v7_patch.py scripts/v7_verify.py
+          bash -n build_v7.sh
+      - name: Compile full RMX2170 V7 HyperSpeed kernel
+        env:
+          BUILD_JOBS: '4'
+        run: bash ./build_v7.sh
+      - name: Upload source build - NOT FLASHABLE
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: AY-Shadow-V7-HyperSpeed-SOURCE-NOT-FLASHABLE
+          path: |
+            dist/v7/
+            work/v7-build.log
+          if-no-files-found: warn
+          retention-days: 14
