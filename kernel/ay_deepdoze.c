@@ -936,7 +936,7 @@ static int __init ay_deepdoze_init(void)
 		ay_touch_registered = true;
 		mod_delayed_work(system_freezable_wq, &ay_thermal_work, 0);
 	}
-	"pr_info("AY Shadow V7.1 Stability: screen-led DeepDoze enabled (delay=%u s), "
+	pr_info("AY Shadow V7.1 Stability: screen-led DeepDoze enabled (delay=%u s), "
 		"wakeboost=%u touchboost=%u\n", ay_delay,
 		READ_ONCE(ay_wake_enabled) ? 1 : 0,
 		READ_ONCE(ay_touch_enabled) ? 1 : 0);
