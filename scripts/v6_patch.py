@@ -41,7 +41,7 @@ panel_enable_src = panel_data[panel_enable_begin:panel_post_begin]
 panel_disable_src = panel_data[panel_disable_begin:panel_unprepare_begin]
 if panel_data.count(include_anchor) != 1 or panel_enable_src.count("lcd_queue_load_tp_fw();") != 1:
     sys.exit("Unexpected DSI panel enable implementation; aborting screen bridge")
-if panel_enable_src.count("return rc;") < 2 or panel_disable_src.count("return rc;") < 2:
+if panel_enable_src.count("return rc;") != 1 or panel_disable_src.count("return rc;") != 1:
     sys.exit("Unexpected DSI panel return paths; aborting screen bridge")
 # Only notify on a successfully initialized panel and only after its mutex is released.
 panel_enable_src = panel_enable_src.replace(
