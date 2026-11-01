@@ -34,7 +34,7 @@ class V6Alpha3Safety(unittest.TestCase):
             self.assertIn(name, DRIVER)
 
     def test_no_raw_flash_and_immutable_safety_defaults(self):
-        self.assertIn("V6-A5-AUTO", BUILD)
+        self.assertIn("V6-A5-1", BUILD)
         self.assertIn("SOURCE BUILD only", BUILD)
         self.assertIn("static bool ay_enabled = true;", DRIVER)
         self.assertIn("static bool ay_wake_enabled = true;", DRIVER)

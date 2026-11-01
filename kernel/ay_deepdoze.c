@@ -42,6 +42,7 @@ static struct delayed_work ay_thermal_work;
 static struct work_struct ay_policy_work;
 static atomic_t ay_deep = ATOMIC_INIT(0);
 static atomic_t ay_fb_events = ATOMIC_INIT(0);
+static atomic_t ay_panel_events = ATOMIC_INIT(0);
 static atomic_t ay_wake_events = ATOMIC_INIT(0);
 static atomic_t ay_wake_active = ATOMIC_INIT(0);
 static atomic_t ay_touch_active = ATOMIC_INIT(0);
@@ -375,6 +376,14 @@ static void ay_set_screen(bool screen_on)
 		ay_schedule_doze();
 	}
 }
+/* Qualcomm DSI panel transition bridge. No polling or persistent userspace service. */
+void ay_shadow_panel_event(bool screen_on)
+{
+	atomic_inc(&ay_panel_events);
+	ay_set_screen(screen_on);
+}
+EXPORT_SYMBOL_GPL(ay_shadow_panel_event);
+
 static int ay_fb_event(struct notifier_block *nb,
 			unsigned long event, void *data)
 {
@@ -720,11 +729,12 @@ static ssize_t telemetry_show(struct kobject *kobj,
 			       struct kobj_attribute *attr, char *buf)
 {
 	return scnprintf(buf, PAGE_SIZE,
-		"fb_events=%d wake_events=%d screen_on=%d deepdoze=%d " 
+		"fb_events=%d panel_events=%d wake_events=%d screen_on=%d deepdoze=%d " 
 		"wakeboost=%d game=%d thermal_safe=%d temp_decic=%d samples=%d "
 		"deep_entries=%d restore_ms=%d game_denials=%d "
 		"post_suspend=%d cap_applied=%d touch_active=%d touch_events=%d\n",
-		atomic_read(&ay_fb_events), atomic_read(&ay_wake_events),
+		atomic_read(&ay_fb_events), atomic_read(&ay_panel_events),
+		atomic_read(&ay_wake_events),
 		READ_ONCE(ay_screen_on) ? 1 : 0, atomic_read(&ay_deep),
 		atomic_read(&ay_wake_active), READ_ONCE(ay_game_enabled) ? 1 : 0,
 		atomic_read(&ay_thermal_safe), atomic_read(&ay_battery_temp),
@@ -856,5 +866,5 @@ static void __exit ay_deepdoze_exit(void)
 module_init(ay_deepdoze_init);
 module_exit(ay_deepdoze_exit);
 MODULE_LICENSE("GPL");
-MODULE_DESCRIPTION("AY Shadow V6 Alpha5 AUTO: screen-led DeepDoze, WakeBoost and thermal guarded TouchBoost");
+MODULE_DESCRIPTION("AY Shadow V6 Alpha5.1: Qualcomm DSI panel event bridge, auto DeepDoze & boosts");
 MODULE_AUTHOR("Eng. Ahmed Yasir");
