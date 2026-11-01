@@ -1,6 +1,6 @@
 // SPDX-License-Identifier: GPL-2.0
 /*
- * AY Shadow V7 HyperSpeed — Eng. Ahmed Yasir / RMX2170.
+ * AY Shadow V7.1 Stability — Eng. Ahmed Yasir / RMX2170.
  * Opt-in, screen-driven policy cap. No thermal/FP/wakelock bypass.
  */
 #include <linux/module.h>
@@ -60,6 +60,9 @@ static atomic_t ay_thermal_safe = ATOMIC_INIT(0);
 static atomic_t ay_battery_temp = ATOMIC_INIT(-1);
 static atomic_t ay_game_samples = ATOMIC_INIT(0);
 static atomic_t ay_deep_entries = ATOMIC_INIT(0);
+static atomic_t ay_doze_rearm_skips = ATOMIC_INIT(0);
+static atomic_t ay_touch_refresh_skips = ATOMIC_INIT(0);
+static atomic_t ay_policy_refreshes = ATOMIC_INIT(0);
 static atomic_t ay_game_denials = ATOMIC_INIT(0);
 static atomic_t ay_restore_pending = ATOMIC_INIT(0);
 static atomic_t ay_restore_ms = ATOMIC_INIT(-1);
@@ -102,6 +105,12 @@ static void ay_schedule_doze(void)
 {
 	if (!READ_ONCE(ay_enabled) || READ_ONCE(ay_screen_on))
 		return;
+	/* PM_POST_SUSPEND also occurs on aborted suspend attempts. Do not
+	 * requeue an already-entered DeepDoze on each such notification. */
+	if (atomic_read(&ay_deep)) {
+		atomic_inc(&ay_doze_rearm_skips);
+		return;
+	}
 	mod_delayed_work(system_freezable_wq, &ay_doze_work,
 			 msecs_to_jiffies(ay_remaining_ms()));
 }
@@ -195,6 +204,7 @@ static struct notifier_block ay_cpufreq_nb = {
 static void ay_refresh_policies(struct work_struct *work)
 {
 	unsigned int cpu;
+	atomic_inc(&ay_policy_refreshes);
 	struct cpufreq_policy *policy;
 	for_each_online_cpu(cpu) {
 		policy = cpufreq_cpu_get(cpu);
@@ -227,20 +237,22 @@ static void ay_end_wakeboost(struct work_struct *work)
  */
 static void ay_end_turbo(struct work_struct *work)
 {
-	atomic_set(&ay_turbo_active, 0);
-	queue_work(system_highpri_wq, &ay_policy_work);
+	if (atomic_xchg(&ay_turbo_active, 0))
+		queue_work(system_highpri_wq, &ay_policy_work);
 }
 
 static void ay_end_touchboost(struct work_struct *work)
 {
-	atomic_set(&ay_touch_active, 0);
-	schedule_work(&ay_policy_work);
+	if (atomic_xchg(&ay_touch_active, 0))
+		queue_work(system_highpri_wq, &ay_policy_work);
 }
 
 static void ay_touch_event(struct input_handle *handle, unsigned int type,
 			   unsigned int code, int value)
 {
 	unsigned long prev;
+	bool turbo_started = false;
+	bool touch_started;
 	if (type != EV_KEY || code != BTN_TOUCH || value != 1)
 		return;
 	if (!READ_ONCE(ay_touch_enabled) || !READ_ONCE(ay_screen_on) ||
@@ -257,13 +269,20 @@ static void ay_touch_event(struct input_handle *handle, unsigned int type,
 	    time_before(jiffies, prev + msecs_to_jiffies(AY_RAPID_WINDOW_MS)) &&
 	    atomic_read(&ay_battery_temp) >= 0 &&
 	    atomic_read(&ay_battery_temp) < AY_TURBO_TEMP_DECI_C) {
-		atomic_set(&ay_turbo_active, 1);
-		atomic_inc(&ay_turbo_events);
+		if (atomic_cmpxchg(&ay_turbo_active, 0, 1) == 0) {
+			atomic_inc(&ay_turbo_events);
+			turbo_started = true;
+		}
 		mod_delayed_work(system_wq, &ay_turbo_work,
 				 msecs_to_jiffies(AY_TURBO_MS));
 	}
-	atomic_set(&ay_touch_active, 1);
-	queue_work(system_highpri_wq, &ay_policy_work);
+	touch_started = atomic_cmpxchg(&ay_touch_active, 0, 1) == 0;
+	/* Repeated presses only extend the boost window. Refresh policies
+	 * when the effective floor can change, not once per input event. */
+	if (touch_started || turbo_started)
+		queue_work(system_highpri_wq, &ay_policy_work);
+	else
+		atomic_inc(&ay_touch_refresh_skips);
 	mod_delayed_work(system_wq, &ay_touch_work,
 			msecs_to_jiffies(READ_ONCE(ay_touch_ms)));
 }
@@ -326,11 +345,13 @@ static void ay_thermal_sample(struct work_struct *work)
 	struct power_supply *battery;
 	union power_supply_propval prop;
 	int ret = -ENODEV, temperature = -1;
+	int was_safe, now_safe;
+	int turbo_stopped = 0;
 
 	if ((!READ_ONCE(ay_game_enabled) && !READ_ONCE(ay_touch_enabled)) ||
 	    !READ_ONCE(ay_screen_on)) {
-		atomic_set(&ay_thermal_safe, 0);
-		schedule_work(&ay_policy_work);
+		if (atomic_xchg(&ay_thermal_safe, 0))
+			queue_work(system_highpri_wq, &ay_policy_work);
 		return;
 	}
 	battery = power_supply_get_by_name("battery");
@@ -343,17 +364,19 @@ static void ay_thermal_sample(struct work_struct *work)
 	}
 	atomic_set(&ay_battery_temp, temperature);
 	if (ret || temperature < 0 || temperature >= AY_TURBO_TEMP_DECI_C)
-		atomic_set(&ay_turbo_active, 0);
-	atomic_set(&ay_thermal_safe, !ret && temperature >= 0 &&
+		turbo_stopped = atomic_xchg(&ay_turbo_active, 0);
+	now_safe = !ret && temperature >= 0 &&
 			temperature < AY_BATTERY_LIMIT_DECI_C &&
 			(READ_ONCE(ay_game_enabled) || READ_ONCE(ay_touch_enabled)) &&
-		READ_ONCE(ay_screen_on));
+			READ_ONCE(ay_screen_on);
+	was_safe = atomic_xchg(&ay_thermal_safe, now_safe);
 	if (ret || temperature < 0 ||
 	    temperature >= AY_BATTERY_LIMIT_DECI_C)
 		atomic_inc(&ay_game_denials);
 	WRITE_ONCE(ay_last_sample, jiffies);
 	atomic_inc(&ay_game_samples);
-	schedule_work(&ay_policy_work);
+	if (was_safe != now_safe || turbo_stopped)
+		queue_work(system_highpri_wq, &ay_policy_work);
 	if ((READ_ONCE(ay_game_enabled) || READ_ONCE(ay_touch_enabled)) &&
 	    READ_ONCE(ay_screen_on))
 		mod_delayed_work(system_freezable_wq, &ay_thermal_work,
@@ -369,7 +392,10 @@ static void ay_enter_deepdoze(struct work_struct *work)
 		ay_schedule_doze();
 		return;
 	}
-	atomic_set(&ay_deep, 1);
+	/* Enter only once per continuous screen-off interval; suspend resume
+	 * callbacks can run repeatedly within the same interval. */
+	if (atomic_cmpxchg(&ay_deep, 0, 1) != 0)
+		return;
 	/*
 	 * Screen-on and sysfs disable can race with this delayed work.
 	 * Wake owns the final state: never leave a cap after unblank.
@@ -807,7 +833,8 @@ static ssize_t telemetry_show(struct kobject *kobj,
 		"deep_entries=%d restore_ms=%d game_denials=%d "
 		"post_suspend=%d cap_applied=%d touch_active=%d touch_events=%d "
 		"wake_floor_adjustments=%d touch_floor_adjustments=%d "
-		"turbo_active=%d turbo_events=%d\n",
+		"turbo_active=%d turbo_events=%d "
+		"doze_rearm_skips=%d touch_refresh_skips=%d policy_refreshes=%d\n",
 		atomic_read(&ay_fb_events), atomic_read(&ay_panel_events),
 		atomic_read(&ay_wake_events),
 		READ_ONCE(ay_screen_on) ? 1 : 0, atomic_read(&ay_deep),
@@ -819,7 +846,9 @@ static ssize_t telemetry_show(struct kobject *kobj,
 		atomic_read(&ay_cap_applied), atomic_read(&ay_touch_active),
 		atomic_read(&ay_touch_events), atomic_read(&ay_wake_floor_adjustments),
 		atomic_read(&ay_touch_floor_adjustments),
-		atomic_read(&ay_turbo_active), atomic_read(&ay_turbo_events));
+		atomic_read(&ay_turbo_active), atomic_read(&ay_turbo_events),
+		atomic_read(&ay_doze_rearm_skips), atomic_read(&ay_touch_refresh_skips),
+		atomic_read(&ay_policy_refreshes));
 }
 static struct kobj_attribute telemetry_attr = __ATTR_RO(telemetry);
 
@@ -907,7 +936,7 @@ static int __init ay_deepdoze_init(void)
 		ay_touch_registered = true;
 		mod_delayed_work(system_freezable_wq, &ay_thermal_work, 0);
 	}
-	pr_info("AY Shadow V6 AUTO: screen-led DeepDoze enabled (delay=%u s), "
+	pr_info("AY Shadow V7.1 Stability: screen-led DeepDoze enabled (delay=%u s), "
 		"wakeboost=%u touchboost=%u\n", ay_delay,
 		READ_ONCE(ay_wake_enabled) ? 1 : 0,
 		READ_ONCE(ay_touch_enabled) ? 1 : 0);
@@ -946,5 +975,5 @@ static void __exit ay_deepdoze_exit(void)
 module_init(ay_deepdoze_init);
 module_exit(ay_deepdoze_exit);
 MODULE_LICENSE("GPL");
-MODULE_DESCRIPTION("AY Shadow V7 HyperSpeed: Qualcomm DSI panel event bridge, auto DeepDoze & boosts");
+MODULE_DESCRIPTION("AY Shadow V7.1 Stability: Qualcomm DSI panel event bridge, auto DeepDoze & boosts");
 MODULE_AUTHOR("Eng. Ahmed Yasir");

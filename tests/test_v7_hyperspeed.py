@@ -13,7 +13,7 @@ class V7HyperSpeed(unittest.TestCase):
                   "AY_TOUCH_MS 800U", "AY_TOUCH_FLOOR 55U",
                   "AY_TURBO_MS 450U", "AY_TURBO_FLOOR 70U",
                   "AY_RAPID_WINDOW_MS 350U", "AY_TURBO_TEMP_DECI_C 375",
-                  "atomic_set(&ay_turbo_active, 1)",
+                  "atomic_cmpxchg(&ay_turbo_active, 0, 1)",
                   "atomic_set(&ay_turbo_active, 0)",
                   "mod_delayed_work(system_wq, &ay_turbo_work",
                   "cancel_delayed_work_sync(&ay_turbo_work)",
