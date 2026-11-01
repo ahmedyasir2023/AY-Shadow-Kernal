@@ -103,7 +103,7 @@ makefile.write_text(s)
 
 cfgpath = src / "arch/arm64/configs/atoll_defconfig"
 s = cfgpath.read_text()
-for name, value in (("LOCALVERSION", '"-AY-Shadow-V6-A5-1"'),
+for name, value in (("LOCALVERSION", '"-AY-Shadow-V6-A5-2"'),
                     ("AY_SHADOW_DEEPDOZE", "y"),
                     ("POWER_SUPPLY", "y")):
     pat = re.compile(rf"^(?:CONFIG_{name}=.*|# CONFIG_{name} is not set)$", re.M)
@@ -112,4 +112,4 @@ for name, value in (("LOCALVERSION", '"-AY-Shadow-V6-A5-1"'),
     repl = f"CONFIG_{name}={value}"
     s = pat.sub(repl, s, count=1) if pat.search(s) else s.rstrip() + "\n" + repl + "\n"
 cfgpath.write_text(s)
-print("V6 Alpha5.1 panel-event kernel source patched: Qualcomm DSI screen bridge + automatic DeepDoze/InstantWake. DeepDoze, wake boost and touch boost start automatically at boot.")
+print("V6 Alpha5.2 panel-event kernel source patched: Qualcomm DSI screen bridge + automatic DeepDoze/InstantWake. DeepDoze, wake boost and touch boost start automatically at boot.")
