@@ -11,9 +11,9 @@ case "${1:-}" in
   on)
     for key in window_animation_scale transition_animation_scale animator_duration_scale; do
       [ -f "$B/$key" ] || settings get global "$key" > "$B/$key"
-      settings put global "$key" 0
+      settings put global "$key" 0.5
     done
-    # Existing bounded 250 ms wake boost; no unlimited CPU frequency.
+    # Existing bounded 350 ms wake boost; no unlimited CPU frequency.
     [ ! -w "$D/wakeboost" ] || echo 1 > "$D/wakeboost"
     # Optional CPU-frequency floor on each BTN_TOUCH; battery guard in kernel.
     [ ! -w "$D/touchboost" ] || echo 1 > "$D/touchboost"
