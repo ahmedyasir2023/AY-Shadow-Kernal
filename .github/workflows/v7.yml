@@ -1,7 +1,7 @@
 name: AY Shadow V7 HyperSpeed - kernel source build
 on:
   push:
-    branches: ['v7-*']
+    branches: ['v7-hyperspeed-lab']
     paths:
       - 'kernel/ay_deepdoze.c'
       - 'scripts/v7_*.py'
