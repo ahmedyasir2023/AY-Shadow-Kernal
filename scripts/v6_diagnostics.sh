@@ -1,5 +1,5 @@
 #!/system/bin/sh
-# AY Shadow V6 Alpha5 / Eng. Ahmed Yasir
+# AY Shadow V6 Alpha5.1 / Eng. Ahmed Yasir
 # READ-ONLY diagnostics for RMX2170, usable on known-working V5 or V6.
 # Run inside Termux: su -c 'sh /sdcard/Download/v6_diagnostics.sh'
 set -u

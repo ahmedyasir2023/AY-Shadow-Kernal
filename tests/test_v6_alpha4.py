@@ -44,7 +44,7 @@ class UltraDozeContract(unittest.TestCase):
         for required in ("static bool ay_enabled = true;", "static bool ay_wake_enabled = true;",
                          "static bool ay_game_enabled;"):
             self.assertIn(required, SRC)
-        self.assertIn('"-AY-Shadow-V6-A5-AUTO"', CFG)
+        self.assertIn('"-AY-Shadow-V6-A5-1"', CFG)
         self.assertIn("AY_DEFAULT_CAP 0U", VER)
         self.assertIn("fingerprint", DOC.lower())
 

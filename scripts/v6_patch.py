@@ -21,6 +21,57 @@ if tp_source.count(old_dt2w) != 1 or tp_source.count("ts->gesture_enable = 1;") 
     sys.exit("Unexpected touch source: refuse to modify DT2W boot default")
 tp.write_text(tp_source.replace(old_dt2w, new_dt2w, 1))
 
+
+# Physical primary display transition hook for the pinned Qualcomm DSI pipeline.
+# CONFIG_MSM_DRM_NOTIFY is absent from the tested atoll .config, so merely
+# registering that optional notifier is not a correct fix. We instrument the
+# existing compiled panel enable/disable functions (not the touch/fingerprint).
+panel = src / "drivers/gpu/drm/msm/dsi-staging/dsi_panel.c"
+panel_data = panel.read_text()
+include_anchor = '#include "dsi_panel.h"'
+enable_anchor = '''	lcd_queue_load_tp_fw();
+ /* add begin by zhaifeibao'''
+# Guard exact function bodies by their unique end snippets to avoid modifying
+# unrelated display paths if upstream changes.
+panel_enable_begin = panel_data.index("int dsi_panel_enable(struct dsi_panel *panel)")
+panel_post_begin = panel_data.index("int dsi_panel_post_enable(struct dsi_panel *panel)")
+panel_disable_begin = panel_data.index("int dsi_panel_disable(struct dsi_panel *panel)")
+panel_unprepare_begin = panel_data.index("int dsi_panel_unprepare(struct dsi_panel *panel)")
+panel_enable_src = panel_data[panel_enable_begin:panel_post_begin]
+panel_disable_src = panel_data[panel_disable_begin:panel_unprepare_begin]
+if panel_data.count(include_anchor) != 1 or panel_enable_src.count("lcd_queue_load_tp_fw();") != 1:
+    sys.exit("Unexpected DSI panel enable implementation; aborting screen bridge")
+if panel_enable_src.count("return rc;") != 1 or panel_disable_src.count("return rc;") != 1:
+    sys.exit("Unexpected DSI panel return paths; aborting screen bridge")
+# Only notify on a successfully initialized panel and only after its mutex is released.
+panel_enable_src = panel_enable_src.replace(
+    "lcd_queue_load_tp_fw();",
+    "lcd_queue_load_tp_fw();\n\tif (!rc)\n\t\tay_shadow_panel_event(true);", 1)
+panel_disable_src = panel_disable_src.replace(
+    "\tmutex_unlock(&panel->panel_lock);\n\treturn rc;\n}",
+    "\tmutex_unlock(&panel->panel_lock);\n\tif (!rc)\n\t\tay_shadow_panel_event(false);\n\treturn rc;\n}", 1)
+if panel_disable_src.count("ay_shadow_panel_event(false)") != 1:
+    sys.exit("Unable to place DSI panel disable bridge safely")
+panel_data = (panel_data[:panel_disable_begin] + panel_disable_src +
+              panel_data[panel_unprepare_begin:])
+panel_data = (panel_data[:panel_enable_begin] + panel_enable_src +
+              panel_data[panel_post_begin:])
+panel_data = panel_data.replace(include_anchor,
+                                include_anchor + "\n#include <linux/ay_shadow_panel.h>", 1)
+panel.write_text(panel_data)
+header = src / "include/linux/ay_shadow_panel.h"
+header.write_text('''/* SPDX-License-Identifier: GPL-2.0 */
+#ifndef _LINUX_AY_SHADOW_PANEL_H
+#define _LINUX_AY_SHADOW_PANEL_H
+#include <linux/types.h>
+#ifdef CONFIG_AY_SHADOW_DEEPDOZE
+void ay_shadow_panel_event(bool screen_on);
+#else
+static inline void ay_shadow_panel_event(bool screen_on) {}
+#endif
+#endif
+''')
+
 driver = root / "kernel/ay_deepdoze.c"
 if not driver.is_file():
     sys.exit("Missing V6 driver source")
@@ -52,7 +103,7 @@ makefile.write_text(s)
 
 cfgpath = src / "arch/arm64/configs/atoll_defconfig"
 s = cfgpath.read_text()
-for name, value in (("LOCALVERSION", '"-AY-Shadow-V6-A5-AUTO"'),
+for name, value in (("LOCALVERSION", '"-AY-Shadow-V6-A5-1"'),
                     ("AY_SHADOW_DEEPDOZE", "y"),
                     ("POWER_SUPPLY", "y")):
     pat = re.compile(rf"^(?:CONFIG_{name}=.*|# CONFIG_{name} is not set)$", re.M)
@@ -61,4 +112,4 @@ for name, value in (("LOCALVERSION", '"-AY-Shadow-V6-A5-AUTO"'),
     repl = f"CONFIG_{name}={value}"
     s = pat.sub(repl, s, count=1) if pat.search(s) else s.rstrip() + "\n" + repl + "\n"
 cfgpath.write_text(s)
-print("V6 Alpha5 AUTO kernel source patched: DeepDoze + InstantWake + thermal-gated GameBoost. DeepDoze, wake boost and touch boost start automatically at boot.")
+print("V6 Alpha5.1 panel-event kernel source patched: Qualcomm DSI screen bridge + automatic DeepDoze/InstantWake. DeepDoze, wake boost and touch boost start automatically at boot.")

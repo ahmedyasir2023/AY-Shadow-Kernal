@@ -43,7 +43,7 @@ class TitanAlpha3Contracts(unittest.TestCase):
     def test_alpha2_full_kernel_build(self):
         self.assertIn('"CONFIG_POWER_SUPPLY": "y"', VERIFY)
         self.assertIn('("POWER_SUPPLY", "y")', PATCH)
-        self.assertIn("AY-Shadow-V6-A5-AUTO", BUILD)
+        self.assertIn("AY-Shadow-V6-A5-1", BUILD)
         self.assertIn("Image.gz-dtb", BUILD)
         self.assertIn("SOURCE BUILD only", BUILD)
 

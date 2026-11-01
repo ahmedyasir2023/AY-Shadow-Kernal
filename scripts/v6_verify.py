@@ -9,7 +9,7 @@ src, path = Path(sys.argv[1]), Path(sys.argv[2])
 config = dict(line.split("=", 1) for line in path.read_text().splitlines()
               if line.startswith("CONFIG_") and "=" in line)
 required = {
-    "CONFIG_LOCALVERSION": '"-AY-Shadow-V6-A5-AUTO"',
+    "CONFIG_LOCALVERSION": '"-AY-Shadow-V6-A5-1"',
     "CONFIG_AY_SHADOW_DEEPDOZE": "y", "CONFIG_FB_NOTIFY": "y",
     "CONFIG_POWER_SUPPLY": "y",
     "CONFIG_INPUT_TOUCHSCREEN": "y",
@@ -42,6 +42,9 @@ for guard in ("FB_EARLY_EVENT_BLANK", "system_freezable_wq", "CPUFREQ_ADJUST",
               "input_unregister_handler", "__ATTR(touchboost, 0600",
               "__ATTR_RO(touch_events)",
               "AY_DEFAULT_CAP 0U", "ktime_get_boottime()",
+              "ay_shadow_panel_event(bool screen_on)",
+              "EXPORT_SYMBOL_GPL(ay_shadow_panel_event)",
+              "panel_events=%d",
               "ay_touch_registered = true;",
               "ret = input_register_handler(&ay_touch_handler);",
               "register_pm_notifier", "PM_POST_SUSPEND",
@@ -82,11 +85,23 @@ for label, blob, guards in (
         if guard not in blob:
             errors.append(f"Missing Double-Tap-to-Wake support in {label}: " + guard)
 
+panel_data = (src / "drivers/gpu/drm/msm/dsi-staging/dsi_panel.c").read_text()
+panel_header = src / "include/linux/ay_shadow_panel.h"
+for required in ('#include <linux/ay_shadow_panel.h>',
+                 "ay_shadow_panel_event(true);",
+                 "ay_shadow_panel_event(false);"):
+    if required not in panel_data:
+        errors.append("Missing DSI panel event hook: " + required)
+if not panel_header.is_file():
+    errors.append("Missing panel bridge header")
+if config.get("CONFIG_DRM_MSM_DSI_STAGING") != "y":
+    errors.append("Physical DSI panel implementation not compiled")
+
 if "KSU_VERSION := 33355" not in (src / "drivers/kernelsu/Makefile").read_text():
     errors.append("KernelSU source version changed unexpectedly")
 if 'SUSFS_VERSION "v2.3.0"' not in (src / "include/linux/susfs.h").read_text():
     errors.append("SUSFS version changed unexpectedly")
 if errors:
     sys.exit("V6 verification FAILED:\n" + "\n".join(errors))
-print("V6 Alpha5 AUTO config PASS: UltraDoze, native RMX2170 Novatek DT2W/IRQ wake, fingerprint, root, thermal guards.")
+print("V6 Alpha5.1 config PASS: UltraDoze, native RMX2170 Novatek DT2W/IRQ wake, fingerprint, root, thermal guards.")
 print("Hardware behavior not validated: do not flash unreviewed raw kernel.")
