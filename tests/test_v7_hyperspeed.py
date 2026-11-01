@@ -40,7 +40,7 @@ class V7HyperSpeed(unittest.TestCase):
     def test_reversible_controls_and_instrumentation(self):
         for t in ('__ATTR(touch_turbo, 0600',
                   '__ATTR_RO(turbo_events)', 'turbo_active=%d turbo_events=%d',
-                  '"panel_events=%d', 'atomic_read(&ay_turbo_events)'):
+                  'panel_events=%d', 'atomic_read(&ay_turbo_events)'):
             self.assertIn(t, K)
 
     def test_pin_fingerprint_root_screen_verified_by_build(self):
