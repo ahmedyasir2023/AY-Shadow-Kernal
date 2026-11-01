@@ -11,7 +11,7 @@ VERIFY = (ROOT / "scripts" / "v6_verify.py").read_text()
 class TitanAlpha3Contracts(unittest.TestCase):
     def test_wakeboost_is_opt_in_and_finite(self):
         self.assertIn("static bool ay_wake_enabled = true;", DRIVER)
-        self.assertIn("AY_WAKE_MS 250U", DRIVER)
+        self.assertIn("AY_WAKE_MS 350U", DRIVER)
         self.assertIn("value < 100 || value > 500", DRIVER)
         self.assertIn("atomic_set(&ay_wake_active, 0)", DRIVER)
         self.assertIn("mod_delayed_work(system_wq, &ay_wake_work", DRIVER)
@@ -43,7 +43,7 @@ class TitanAlpha3Contracts(unittest.TestCase):
     def test_alpha2_full_kernel_build(self):
         self.assertIn('"CONFIG_POWER_SUPPLY": "y"', VERIFY)
         self.assertIn('("POWER_SUPPLY", "y")', PATCH)
-        self.assertIn("AY-Shadow-V6-A5-1", BUILD)
+        self.assertIn("AY-Shadow-V6-A5-2", BUILD)
         self.assertIn("Image.gz-dtb", BUILD)
         self.assertIn("SOURCE BUILD only", BUILD)
 
