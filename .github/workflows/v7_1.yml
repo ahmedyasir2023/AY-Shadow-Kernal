@@ -1,0 +1,40 @@
+name: AY Shadow V7.1 Stability - source kernel build
+on:
+  push:
+    branches: ['v7-1-stability']
+    paths:
+      - 'kernel/ay_deepdoze.c'
+      - 'scripts/v7_1_*.py'
+      - 'build_v7_1.sh'
+      - 'tests/test_v7_1_*.py'
+      - '.github/workflows/v7_1.yml'
+  workflow_dispatch:
+permissions:
+  contents: read
+jobs:
+  source-build:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 110
+    steps:
+      - uses: actions/checkout@v4
+      - name: Install ARM64 kernel dependencies
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y git python3 make bc bison flex libssl-dev libelf-dev libncurses-dev ccache zip
+      - name: Validate V7.1 regression and build scripts
+        run: |
+          python3 -m unittest discover -s tests -p 'test_v7_1_*.py' -v
+          python3 -m py_compile scripts/v7_1_patch.py scripts/v7_1_verify.py
+          bash -n build_v7_1.sh
+      - name: Build actual V7.1 RMX2170 kernel
+        run: bash ./build_v7_1.sh
+      - name: Upload raw source-build artifact (NOT FLASHABLE)
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: AY-Shadow-V7.1-Stability-SOURCE-NOT-FLASHABLE
+          path: |
+            dist/v7_1/
+            work/v7_1-build.log
+          if-no-files-found: warn
+          retention-days: 14
