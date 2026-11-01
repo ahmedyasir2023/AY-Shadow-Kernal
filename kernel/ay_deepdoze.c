@@ -1,6 +1,6 @@
 // SPDX-License-Identifier: GPL-2.0
 /*
- * AY Shadow V6 Alpha 4 — Eng. Ahmed Yasir / RMX2170.
+ * AY Shadow V6 Alpha 5.2 — Eng. Ahmed Yasir / RMX2170.
  * Opt-in, screen-driven policy cap. No thermal/FP/wakelock bypass.
  */
 #include <linux/module.h>
@@ -25,11 +25,11 @@
 
 #define AY_DEFAULT_DELAY 600U
 #define AY_DEFAULT_CAP 0U /* Ultra: hardware minimum unless an existing policy floor is higher */
-#define AY_WAKE_MS 250U
-#define AY_WAKE_FLOOR 20U
+#define AY_WAKE_MS 350U
+#define AY_WAKE_FLOOR 30U
 #define AY_GAME_FLOOR 25U
-#define AY_TOUCH_MS 700U
-#define AY_TOUCH_FLOOR 30U
+#define AY_TOUCH_MS 900U
+#define AY_TOUCH_FLOOR 45U
 #define AY_BATTERY_LIMIT_DECI_C 400
 #define AY_BATTERY_SAMPLE_MS 5000U
 
@@ -47,6 +47,8 @@ static atomic_t ay_wake_events = ATOMIC_INIT(0);
 static atomic_t ay_wake_active = ATOMIC_INIT(0);
 static atomic_t ay_touch_active = ATOMIC_INIT(0);
 static atomic_t ay_touch_events = ATOMIC_INIT(0);
+static atomic_t ay_touch_floor_adjustments = ATOMIC_INIT(0);
+static atomic_t ay_wake_floor_adjustments = ATOMIC_INIT(0);
 static atomic_t ay_thermal_safe = ATOMIC_INIT(0);
 static atomic_t ay_battery_temp = ATOMIC_INIT(-1);
 static atomic_t ay_game_samples = ATOMIC_INIT(0);
@@ -167,6 +169,10 @@ static int ay_cpufreq_adjust(struct notifier_block *nb,
 		if (floor > policy->max)
 			floor = policy->max;
 		cpufreq_verify_within_limits(policy, floor, policy->max);
+		if (READ_ONCE(ay_wake_enabled) && atomic_read(&ay_wake_active))
+			atomic_inc(&ay_wake_floor_adjustments);
+		if (READ_ONCE(ay_touch_enabled) && atomic_read(&ay_touch_active) && atomic_read(&ay_thermal_safe))
+			atomic_inc(&ay_touch_floor_adjustments);
 	}
 	return NOTIFY_OK;
 }
@@ -706,7 +712,7 @@ static ssize_t touchboost_floor_store(struct kobject *kobj,
 	int ret = kstrtouint(buf, 10, &value);
 	if (ret)
 		return ret;
-	if (value < 10 || value > 35)
+	if (value < 10 || value > 50)
 		return -ERANGE;
 	WRITE_ONCE(ay_touch_floor, value);
 	if (atomic_read(&ay_touch_active))
@@ -732,7 +738,8 @@ static ssize_t telemetry_show(struct kobject *kobj,
 		"fb_events=%d panel_events=%d wake_events=%d screen_on=%d deepdoze=%d " 
 		"wakeboost=%d game=%d thermal_safe=%d temp_decic=%d samples=%d "
 		"deep_entries=%d restore_ms=%d game_denials=%d "
-		"post_suspend=%d cap_applied=%d touch_active=%d touch_events=%d\n",
+		"post_suspend=%d cap_applied=%d touch_active=%d touch_events=%d "
+		"wake_floor_adjustments=%d touch_floor_adjustments=%d\n",
 		atomic_read(&ay_fb_events), atomic_read(&ay_panel_events),
 		atomic_read(&ay_wake_events),
 		READ_ONCE(ay_screen_on) ? 1 : 0, atomic_read(&ay_deep),
@@ -742,7 +749,8 @@ static ssize_t telemetry_show(struct kobject *kobj,
 		atomic_read(&ay_deep_entries), atomic_read(&ay_restore_ms),
 		atomic_read(&ay_game_denials), atomic_read(&ay_post_suspend_count),
 		atomic_read(&ay_cap_applied), atomic_read(&ay_touch_active),
-		atomic_read(&ay_touch_events));
+		atomic_read(&ay_touch_events), atomic_read(&ay_wake_floor_adjustments),
+		atomic_read(&ay_touch_floor_adjustments));
 }
 static struct kobj_attribute telemetry_attr = __ATTR_RO(telemetry);
 
@@ -866,5 +874,5 @@ static void __exit ay_deepdoze_exit(void)
 module_init(ay_deepdoze_init);
 module_exit(ay_deepdoze_exit);
 MODULE_LICENSE("GPL");
-MODULE_DESCRIPTION("AY Shadow V6 Alpha5.1: Qualcomm DSI panel event bridge, auto DeepDoze & boosts");
+MODULE_DESCRIPTION("AY Shadow V6 Alpha5.2: Qualcomm DSI panel event bridge, auto DeepDoze & boosts");
 MODULE_AUTHOR("Eng. Ahmed Yasir");
