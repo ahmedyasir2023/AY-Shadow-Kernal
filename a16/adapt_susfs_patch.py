@@ -38,16 +38,13 @@ if piece.count(old)!=1:
     raise SystemExit("SuSFS namespace preimage changed")
 piece=piece.replace(old,new,1)
 s=s[:start]+piece+s[end:]
-start=s.index("diff --git a/fs/proc/task_mmu.c b/fs/proc/task_mmu.c")
-end=s.index("diff --git ",start+10)
-piece=s[start:end]
-if piece.count("@@ -19,6 +19,9 @@")!=1:
-    raise SystemExit("SuSFS task_mmu hunk header changed")
-piece=piece.replace("@@ -19,6 +19,9 @@","@@ -19,7 +19,10 @@",1)
-anchor=" #include <linux/mm_inline.h>\n"
-if piece.count(anchor)!=1:
-    raise SystemExit("SuSFS task_mmu preimage changed")
-piece=piece.replace(anchor,anchor+" #include <linux/ctype.h>\n",1)
-s=s[:start]+piece+s[end:]
+# This source contains an extra, unrelated ctype.h include between two
+# upstream patch-context lines. Relocate that include without changing code.
+# The original, unmodified task_mmu SuSFS hunk must then apply exactly.
+original='#include <linux/mm_inline.h>\n#include <linux/ctype.h>\n'
+reordered='#include <linux/ctype.h>\n#include <linux/mm_inline.h>\n'
+if mmu.count(original)!=1:
+    raise SystemExit("Unexpected A16 task_mmu include layout")
+(x.src/"fs/proc/task_mmu.c").write_text(mmu.replace(original,reordered,1))
 path.write_text(s)
-print("Two exact source-context adjustments, no skipped SuSFS changes or patch fuzz.")
+print("Adapted A16 source include context, no SUSFS hunk skipped or patch fuzz.")
