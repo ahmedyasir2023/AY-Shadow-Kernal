@@ -1,0 +1,41 @@
+name: Ahmed Super Kernal A16 - source port gate
+on:
+  push:
+    branches: ['ahmed-super-kernal-a16']
+    paths:
+      - 'a16/**'
+      - '.github/workflows/ahmed-super-kernal-a16.yml'
+  workflow_dispatch:
+permissions:
+  contents: read
+jobs:
+  root-hide-source-port:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 85
+    steps:
+      - name: Checkout Ahmed Super Kernal A16 project
+        uses: actions/checkout@v4
+      - name: Check syntax, original DTB reference and no hardware changes
+        run: |
+          python3 -m unittest discover -s a16 -p test_source_contract.py -v
+          python3 -m py_compile a16/prepare_source.py
+      - name: Install required source port tools
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y git patch python3
+      - name: Clone pinned Android 16 Realme source (4.14.336)
+        run: |
+          git clone --depth 1 --branch aosp-16 https://github.com/realme-atoll/android_kernel_realme_sm7125.git /tmp/a16-source
+          test "$(git -C /tmp/a16-source rev-parse HEAD)" = 10380039ddcd6ead841e1fc4ca744a2dd6e92fb8
+      - name: Clone candidate KernelSU Next and SuSFS patches
+        run: |
+          git clone --depth 1 --branch dev-susfs https://github.com/pershoot/KernelSU-Next.git /tmp/a16-ksu
+          test "$(git -C /tmp/a16-ksu rev-parse HEAD)" = bea056e5637d15ddd6b0dc2013e8f2a7d98a9270
+          git clone --depth 1 --branch kernel-4.14 https://gitlab.com/simonpunk/susfs4ksu.git /tmp/a16-susfs
+          test "$(git -C /tmp/a16-susfs rev-parse HEAD | cut -c1-8)" = 77905b5a
+      - name: Strict KernelSU Next + SuSFS root/hide source-port check
+        run: |
+          python3 a16/prepare_source.py --src /tmp/a16-source --ksu /tmp/a16-ksu --susfs /tmp/a16-susfs
+      - name: Source-port gate passed (not a kernel compilation)
+        run: |
+          echo 'SOURCE INTEGRATION PASS. Compilation, DTS compatibility, boot and root still untested.'
