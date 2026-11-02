@@ -39,6 +39,20 @@ jobs:
       - name: Strict KernelSU Next + SuSFS root/hide source-port check
         run: |
           python3 a16/prepare_source.py --src /tmp/a16-source --ksu /tmp/a16-ksu --susfs /tmp/a16-susfs
-      - name: Source-port gate passed (not a kernel compilation)
+      - name: Source-port gate passed
+        run: echo 'Root + SUSFS VFS patch applied; starting full ARM64 build.'
+      - name: Install compiler dependencies
         run: |
-          echo 'SOURCE INTEGRATION PASS. Compilation, DTS compatibility, boot and root still untested.'
+          sudo apt-get install -y make bc bison flex libssl-dev libelf-dev libncurses-dev zip
+      - name: Compile Ahmed Super Kernal A16 with Clang 21
+        run: bash a16/build_a16.sh
+      - name: Upload compiled raw kernel only (NOT FLASHABLE)
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: Ahmed-Super-Kernal-A16-SOURCE-NOT-FLASHABLE
+          path: |
+            dist/a16/
+            work/a16-build.log
+          if-no-files-found: warn
+          retention-days: 14
