@@ -34,6 +34,23 @@ if not cfg.is_file() or not tp.is_file() or not nvt.is_dir():
 kc = ksu / "kernel/Kconfig"
 if not kc.is_file() or "config KSU_SUSFS\n" not in kc.read_text():
     fail("SUSFS-capable KernelSU Next source required")
+# KernelSU Next dev-susfs ARM64 non-GKI compatibility. Its header declares
+# syscall_fn_t for x86_64/RISC-V, but not AArch64. The syscall table hooks
+# are disabled by CONFIG_KSU_SUSFS; this declaration is still parsed by
+# core/init.c and must have the correct ARM64 pt_regs signature.
+hook_header = ksu / "kernel/hook/syscall_hook.h"
+hook_text = hook_header.read_text()
+original_typedef = ("#if defined(__x86_64__)\n"
+                    "typedef sys_call_ptr_t syscall_fn_t;\n"
+                    "#elif defined(__riscv)\n")
+revised_typedef = ("#if defined(__x86_64__)\n"
+                   "typedef sys_call_ptr_t syscall_fn_t;\n"
+                   "#elif defined(__aarch64__)\n"
+                   "typedef long (*syscall_fn_t)(const struct pt_regs *);\n"
+                   "#elif defined(__riscv)\n")
+if hook_text.count(original_typedef) != 1:
+    fail("KernelSU Next ARM64 syscall type context changed; manual review required")
+hook_header.write_text(hook_text.replace(original_typedef, revised_typedef, 1))
 patches = list((susfs / "kernel_patches").glob("50_add_susfs_in_kernel*4.14*.patch"))
 if len(patches) != 1:
     fail("Exactly one upstream Linux 4.14 SUSFS VFS patch required")
