@@ -43,7 +43,13 @@ jobs:
         run: echo 'Root + SUSFS VFS patch applied; starting full ARM64 build.'
       - name: Install compiler dependencies
         run: |
-          sudo apt-get install -y make bc bison flex libssl-dev libelf-dev libncurses-dev zip
+          sudo apt-get install -y make bc bison flex libssl-dev libelf-dev libncurses-dev zip gcc-aarch64-linux-gnu binutils-aarch64-linux-gnu gcc-arm-linux-gnueabihf binutils-arm-linux-gnueabihf
+      - name: Verify ARM64 cross-linker and compiler tools
+        run: |
+          command -v aarch64-linux-gnu-ld
+          command -v aarch64-linux-gnu-gcc
+          command -v arm-linux-gnueabihf-gcc
+          aarch64-linux-gnu-ld --version | head -n 1
       - name: Compile Ahmed Super Kernal A16 with Clang 21
         run: bash a16/build_a16.sh
       - name: Upload compiled raw kernel only (NOT FLASHABLE)
