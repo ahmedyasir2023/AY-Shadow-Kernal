@@ -29,6 +29,11 @@ class SourceContracts(unittest.TestCase):
         self.assertIn('if hook_text.count(original_typedef) != 1:', S)
         self.assertIn('hook_header.write_text(', S)
 
+    def test_sucompat_no_unsupported_newer_kernel_header(self):
+        self.assertIn('obsolete_include = "#include <linux/pgtable.h>', S)
+        self.assertIn('sucompat_file.write_text(', S)
+        self.assertIn('sucompat_no_includes', S)
+
     def test_required_root_hide_gates(self):
         for guard in ('(4,14,336)', 'config KSU_SUSFS',
                       '50_add_susfs_in_kernel', '--fuzz=0',
