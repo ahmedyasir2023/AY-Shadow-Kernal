@@ -21,6 +21,14 @@ class SourceContracts(unittest.TestCase):
                        "ay_deepdoze.c", "qcom,qpnp"):
             self.assertNotIn(unsafe, S)
 
+    def test_arm64_syscall_type_port_is_guarded(self):
+        # Pinned KernelSU fork omitted the ARM64 typedef while including
+        # syscall_hook.h from core/init.c with SUSFS enabled.
+        self.assertIn('typedef long (*syscall_fn_t)(const struct pt_regs *);', S)
+        self.assertIn('#elif defined(__aarch64__)', S)
+        self.assertIn('if hook_text.count(original_typedef) != 1:', S)
+        self.assertIn('hook_header.write_text(', S)
+
     def test_required_root_hide_gates(self):
         for guard in ('(4,14,336)', 'config KSU_SUSFS',
                       '50_add_susfs_in_kernel', '--fuzz=0',
