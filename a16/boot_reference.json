@@ -1,0 +1,20 @@
+{
+  "project": "Ahmed Super Kernal A16",
+  "reference": "EvolutionX-16.0-20261102-RMX2170-original-boot.img",
+  "boot_sha256": "4101a2db9a8fdc388f44a3ce4a23c14b2a856c5a902126513624b9c6c4db2653",
+  "kernel_gzip_sha256": "73bcbe11d4055b3b552914dc21423aad6c26b833fbb9449fe9dd26a3ee583f0c",
+  "boot_header": 2,
+  "page_size": 4096,
+  "kernel_bytes": 19590365,
+  "ramdisk_bytes": 1581241,
+  "dtb_count": 7,
+  "dtb_sha256": [
+    "0711655f564a5d3db0e327f0797343b8b9d20d49118a10e6ef06194d7f271dcc",
+    "ce4c46a83ccf9216e976ff75e6472519ce2fbd54d71fa29e0d56b0dbedee1e9b",
+    "14cfd64c218b96333289aab4f4cc1516479865a0284dbeccc7599973d6c89ecc",
+    "28db6864c9dbc26c91a8a50e54c6e9749c4f251051ed1b31e9ae642a8ab30f98",
+    "0288ac31905e72168035bf7e6c3df4124e57458dbe87e77fd2cc3222ff2a7123",
+    "d80bb543c49504f616f0310514e46f5b856d388204f3569021fb3099cc885339",
+    "f8f3bef3bf273addefc236805a9606810af24eb21121184e852ea25b4db18753"
+  ]
+}
