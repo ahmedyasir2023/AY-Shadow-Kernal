@@ -41,8 +41,8 @@ s=s[:start]+piece+s[end:]
 # This source contains an extra, unrelated ctype.h include between two
 # upstream patch-context lines. Relocate that include without changing code.
 # The original, unmodified task_mmu SuSFS hunk must then apply exactly.
-original='#include <linux/mm_inline.h>\n#include <linux/ctype.h>\n'
-reordered='#include <linux/ctype.h>\n#include <linux/mm_inline.h>\n'
+original='#include <linux/shmem_fs.h>\n#include <linux/uaccess.h>\n#include <linux/mm_inline.h>\n#include <linux/ctype.h>\n'
+reordered='#include <linux/ctype.h>\n#include <linux/shmem_fs.h>\n#include <linux/uaccess.h>\n#include <linux/mm_inline.h>\n'
 if mmu.count(original)!=1:
     raise SystemExit("Unexpected A16 task_mmu include layout")
 (x.src/"fs/proc/task_mmu.c").write_text(mmu.replace(original,reordered,1))
