@@ -62,7 +62,15 @@ if sucompat_src.count(obsolete_include) != 1:
     fail("Unexpected KernelSU Next pgtable.h include layout")
 if not (src / "include/linux/mm.h").is_file() or (src / "include/linux/pgtable.h").exists():
     fail("Kernel header layout changed; refuse obsolete include removal")
-sucompat_no_includes = re.sub(r'^\s*#include[^\n]*patches = list((susfs / "kernel_patches").glob("50_add_susfs_in_kernel*4.14*.patch"))
+sucompat_no_includes = "\n".join(
+    line for line in sucompat_src.splitlines()
+    if not line.lstrip().startswith("#include")
+)
+if any(token in sucompat_no_includes for token in
+       ("pgd_(", "pud_(", "pmd_(", "pte_(", "p4d_(", "pgprot(")):
+    fail("sucompat.c uses page table API; include must be ported, not removed")
+sucompat_file.write_text(sucompat_src.replace(obsolete_include, "", 1))
+patches = list((susfs / "kernel_patches").glob("50_add_susfs_in_kernel*4.14*.patch"))
 if len(patches) != 1:
     fail("Exactly one upstream Linux 4.14 SUSFS VFS patch required")
 for name, dest in (("fs", src / "fs"), ("include/linux", src / "include/linux")):
