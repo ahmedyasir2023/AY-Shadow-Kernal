@@ -1,0 +1,93 @@
+name: Lightning McQueen RMX2170 v1.1.0
+
+on:
+  push:
+    branches:
+      - lightning-mcqueen-rmx2170-v1.1.0
+    paths:
+      - "lightning-mcqueen/**"
+      - ".github/workflows/lightning-mcqueen-rmx2170.yml"
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  build:
+    runs-on: ubuntu-22.04
+    timeout-minutes: 120
+    steps:
+      - name: Checkout isolated Lightning McQueen build configuration
+        uses: actions/checkout@v4
+        with:
+          path: pipeline
+
+      - name: Checkout approved Linux 4.14.356 kernel source
+        uses: actions/checkout@v4
+        with:
+          repository: crdroidandroid/android_kernel_realme_sm7125
+          ref: 16.0
+          path: kernel
+          fetch-depth: 1
+
+      - name: Install host build dependencies
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y bc bison build-essential ccache flex \
+            gcc-aarch64-linux-gnu gcc-arm-linux-gnueabi git libssl-dev \
+            lld make python3 zip zstd
+
+      - name: Verify and patch exact kernel source
+        run: |
+          python3 pipeline/lightning-mcqueen/tools/apply_lm_rmx2170_patch.py --root kernel
+          git -C kernel rev-parse HEAD
+          grep -E '^(CONFIG_LOCALVERSION|CONFIG_KSU=|CONFIG_KSU_SUSFS=|CONFIG_SCHEDUTIL_UP_RATE_LIMIT=|CONFIG_SCHEDUTIL_DOWN_RATE_LIMIT=)' \
+            kernel/arch/arm64/configs/atoll_defconfig
+
+      - name: Compile kernel and create AnyKernel3 package
+        run: |
+          set -o pipefail
+          cd kernel
+          bash ./build.sh 2>&1 | tee "$GITHUB_WORKSPACE/lightning-mcqueen-build-console.log"
+
+      - name: Verify output image and package
+        if: success()
+        run: |
+          test -s kernel/out/arch/arm64/boot/Image.gz-dtb
+          test -s kernel/out/.config
+          grep -q '^CONFIG_KSU=y$' kernel/out/.config
+          grep -q '^CONFIG_KSU_SUSFS=y$' kernel/out/.config
+          grep -q '^CONFIG_SCHEDUTIL_UP_RATE_LIMIT=500$' kernel/out/.config
+          grep -q '^CONFIG_SCHEDUTIL_DOWN_RATE_LIMIT=5000$' kernel/out/.config
+          ZIP="$(find "$HOME/AnyKernel3" -maxdepth 1 -type f -name '*v1.1.0.zip' -print -quit)"
+          test -n "$ZIP"
+          unzip -t "$ZIP"
+          sha256sum "$ZIP" | tee kernel/out/AnyKernel-SHA256.txt
+          {
+            echo "Device: Realme 7 Pro (RMX2170)"
+            echo "ROM target: MelloDerp Android 14"
+            echo "Source: crdroidandroid/android_kernel_realme_sm7125"
+            echo "Branch: 16.0"
+            echo "Source commit: $(git -C kernel rev-parse HEAD)"
+            echo "Kernel release expected: 4.14.356-Lightning-McQueen-"
+            echo "KernelSU Next in-tree tag: v1.1.1"
+            echo "SUSFS in-tree version: v1.5.12"
+            echo "Build date UTC: $(date -u +%FT%TZ)"
+            echo "Package: $ZIP"
+          } | tee kernel/out/Lightning-McQueen-build-manifest.txt
+
+      - name: Upload kernel image, config, logs and AnyKernel package
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: Lightning-McQueen-RMX2170-v1.1.0
+          path: |
+            /home/runner/AnyKernel3/*v1.1.0.zip
+            kernel/out/arch/arm64/boot/Image.gz-dtb
+            kernel/out/.config
+            kernel/out/build.log
+            kernel/out/AnyKernel-SHA256.txt
+            kernel/out/Lightning-McQueen-build-manifest.txt
+            lightning-mcqueen-build-console.log
+          if-no-files-found: warn
+          retention-days: 14
