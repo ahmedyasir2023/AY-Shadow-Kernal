@@ -21,26 +21,34 @@ jobs:
         uses: actions/checkout@v4
         with:
           path: pipeline
+          persist-credentials: false
 
-      - name: Checkout approved Linux 4.14.356 kernel source
+      - name: Checkout pinned Linux 4.14.356 kernel source
         uses: actions/checkout@v4
         with:
           repository: crdroidandroid/android_kernel_realme_sm7125
-          ref: 16.0
+          ref: "60f3427322632b19e8bc3e22731ecc7ce0baac25"
           path: kernel
           fetch-depth: 1
+          persist-credentials: false
 
       - name: Install host build dependencies
         run: |
           sudo apt-get update
-          sudo apt-get install -y bc bison build-essential ccache flex \
-            gcc-aarch64-linux-gnu gcc-arm-linux-gnueabi git libssl-dev \
-            lld make python3 zip zstd
+          sudo apt-get install -y bc bison build-essential ccache \
+            device-tree-compiler flex gcc-aarch64-linux-gnu \
+            gcc-arm-linux-gnueabi git libelf-dev libncurses-dev \
+            libssl-dev lld make perl python3 rsync unzip zip \
+            zlib1g-dev zstd
 
-      - name: Verify and patch exact kernel source
+      - name: Verify and patch the exact kernel source
         run: |
+          python3 -m py_compile pipeline/lightning-mcqueen/tools/apply_lm_rmx2170_patch.py
+          test "$(git -C kernel rev-parse HEAD)" = "60f3427322632b19e8bc3e22731ecc7ce0baac25"
+          python3 pipeline/lightning-mcqueen/tools/apply_lm_rmx2170_patch.py --check --root kernel
           python3 pipeline/lightning-mcqueen/tools/apply_lm_rmx2170_patch.py --root kernel
-          git -C kernel rev-parse HEAD
+          git -C kernel diff --check
+          git -C kernel diff --stat
           grep -E '^(CONFIG_LOCALVERSION|CONFIG_KSU=|CONFIG_KSU_SUSFS=|CONFIG_SCHEDUTIL_UP_RATE_LIMIT=|CONFIG_SCHEDUTIL_DOWN_RATE_LIMIT=)' \
             kernel/arch/arm64/configs/atoll_defconfig
 
@@ -50,15 +58,18 @@ jobs:
           cd kernel
           bash ./build.sh 2>&1 | tee "$GITHUB_WORKSPACE/lightning-mcqueen-build-console.log"
 
-      - name: Verify output image and package
+      - name: Verify output image, configuration and package
         if: success()
         run: |
           test -s kernel/out/arch/arm64/boot/Image.gz-dtb
           test -s kernel/out/.config
+          test -s kernel/out/include/config/kernel.release
+          grep -Fxq '4.14.356-Lightning-McQueen-' kernel/out/include/config/kernel.release
           grep -q '^CONFIG_KSU=y$' kernel/out/.config
           grep -q '^CONFIG_KSU_SUSFS=y$' kernel/out/.config
           grep -q '^CONFIG_SCHEDUTIL_UP_RATE_LIMIT=500$' kernel/out/.config
           grep -q '^CONFIG_SCHEDUTIL_DOWN_RATE_LIMIT=5000$' kernel/out/.config
+          test "$(find "$HOME/AnyKernel3" -maxdepth 1 -type f -name '*v1.1.0.zip' | wc -l)" -eq 1
           ZIP="$(find "$HOME/AnyKernel3" -maxdepth 1 -type f -name '*v1.1.0.zip' -print -quit)"
           test -n "$ZIP"
           unzip -t "$ZIP"
@@ -66,12 +77,14 @@ jobs:
           {
             echo "Device: Realme 7 Pro (RMX2170)"
             echo "ROM target: MelloDerp Android 14"
-            echo "Source: crdroidandroid/android_kernel_realme_sm7125"
-            echo "Branch: 16.0"
+            echo "Kernel source: crdroidandroid/android_kernel_realme_sm7125"
+            echo "Source branch: 16.0"
             echo "Source commit: $(git -C kernel rev-parse HEAD)"
-            echo "Kernel release expected: 4.14.356-Lightning-McQueen-"
-            echo "KernelSU Next in-tree tag: v1.1.1"
-            echo "SUSFS in-tree version: v1.5.12"
+            echo "Kernel release: $(cat kernel/out/include/config/kernel.release)"
+            echo "KernelSU Next: v1.1.1"
+            echo "SUSFS: v1.5.12"
+            echo "Schedutil: up 500 us / down 5000 us"
+            echo "WALT hispeed: load 85% / floor 70% of policy maximum"
             echo "Build date UTC: $(date -u +%FT%TZ)"
             echo "Package: $ZIP"
           } | tee kernel/out/Lightning-McQueen-build-manifest.txt
